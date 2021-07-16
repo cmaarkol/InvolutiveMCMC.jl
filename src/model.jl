@@ -20,8 +20,8 @@ involution(model::iMCMCModel) = model.involution
 # compute the log Jacobian determinant of the involution of a sample-auxiliary pair
 logabsdetjac(model::iMCMCModel, x, v) = 0
 
-# obtain auxiliary_kernel
-auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel
+# obtain auxiliary_kernel conditioned on x
+auxiliary_kernel(model::iMCMCModel, x) = model.auxiliary_kernel(x)
 
 # evaluate the loglikelihood of a sample
 Distributions.loglikelihood(model::iMCMCModel, x) = model.loglikelihood(x)

@@ -12,8 +12,10 @@ end
 # first step of the involutive MCMC
 function AbstractMCMC.step(
     rng::Random.AbstractRNG,
-    model::AbstractMCMC.AbstractModel,
-    ::iMCMC;
+    model::AbstractMCMC.AbstractModel
+    # ,
+    # ::iMCMC
+    ;
     kwargs...
 )
     # initial sample from Gaussian
@@ -29,24 +31,24 @@ end
 function AbstractMCMC.step(
     rng::Random.AbstractRNG,
     model::AbstractMCMC.AbstractModel,
-    ::iMCMC,
+    # ::iMCMC,
     state::iMCMCState;
     kwargs...,
 )
-    # sample from the auxiliary kernel and compute its log likelihood
-    vsample = aux_kernel_sampler(rng, model)
-    vloglikelihood = aux_kernel_loglikelihood(model, vsample)
-
     # previous sample and its log likelihood
     xsample = state.sample
     xloglikelihood = state.loglikelihood
+
+    # sample from the auxiliary kernel and compute its log likelihood
+    vsample = aux_kernel_sampler(rng, model, xsample)
+    vloglikelihood = aux_kernel_loglikelihood(model, xsample, vsample)
 
     # compute the new sample and auxiliary using involution
     newxsample, newvsample = proposal(model, xsample,vsample)
 
     # compute the log likelihood of the newxsample and newvsample
     newxloglikelihood = Distributions.loglikelihood(model, newxsample)
-    newvloglikelihood = aux_kernel_loglikelihood(model, newvsample)
+    newvloglikelihood = aux_kernel_loglikelihood(model, newxsample, newvsample)
 
     # compute the log Hastings acceptance ratio
     logabsdetjacinv = logabsdetjac(model, xsample, vsample)

@@ -10,23 +10,23 @@ function initial_sample(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractMod
 end
 
 """
-    aux_kernel_sampler(rng,model)
+    aux_kernel_sampler(rng,model, x)
 
-Return a random sample from the model's auxiliary_kernel
+Return a random sample from the model's auxiliary_kernel conditioned on x
 
 """
-function aux_kernel_sampler(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel)
-    return Random.rand(rng, model.auxiliary_kernel)
+function aux_kernel_sampler(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel, x)
+    return Random.rand(rng, model.auxiliary_kernel(x))
 end
 
 """
-    aux_kernel_loglikelihood(model, sample)
+    aux_kernel_loglikelihood(model, x, v)
 
-Return the log likelihood of sample from the model's auxiliary_kernel
+Return the log likelihood of v from the model's auxiliary_kernel conditioned on x
 
 """
-function aux_kernel_loglikelihood(model::AbstractMCMC.AbstractModel, sample)
-    return Distributions.loglikelihood(model.auxiliary_kernel, sample)
+function aux_kernel_loglikelihood(model::AbstractMCMC.AbstractModel, x, v)
+    return Distributions.loglikelihood(model.auxiliary_kernel(x), v)
 end
 
 """
