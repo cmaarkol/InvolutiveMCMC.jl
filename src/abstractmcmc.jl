@@ -12,13 +12,11 @@ end
 # first step of the involutive MCMC
 function AbstractMCMC.step(
     rng::Random.AbstractRNG,
-    model::AbstractMCMC.AbstractModel
-    # ,
-    # ::iMCMC
-    ;
+    model::AbstractMCMC.AbstractModel,
+    ::iMCMC;
     kwargs...
 )
-    # initial sample from Gaussian
+    # initial sample from the model
     f = initial_sample(rng, model)
 
     # compute log-likelihood of the initial sample
@@ -31,7 +29,7 @@ end
 function AbstractMCMC.step(
     rng::Random.AbstractRNG,
     model::AbstractMCMC.AbstractModel,
-    # ::iMCMC,
+    ::iMCMC,
     state::iMCMCState;
     kwargs...,
 )
