@@ -9,11 +9,12 @@ function initial_sample(
     rng::Random.AbstractRNG,
     model::AbstractMCMC.AbstractModel
 )
-    init_sample = Random.rand(rng, model.auxiliary_kernel(0))
-    while isinf(model.loglikelihood(init_sample))
-        init_sample = Random.rand(rng, model.auxiliary_kernel(0))
-    end
-    return init_sample
+    # init_sample = Random.rand(rng, model.auxiliary_kernel(0))
+    # while isinf(model.loglikelihood(init_sample))
+    #     init_sample = Random.rand(rng, model.auxiliary_kernel(0))
+    # end
+    # return init_sample
+    return Random.rand(rng, model.prior)
 end
 
 """
@@ -37,9 +38,9 @@ function aux_kernel_loglikelihood(model::AbstractMCMC.AbstractModel, x, v)
 end
 
 """
-    proposal(involution, x, v)
+    proposal(model, x, v)
 
-Compute the proposal for the next sample using `involution`, the current sample `x` and the auxiliary sample `v`.
+Compute the proposal for the next sample using the `model`'s involution, the current sample `x` and the auxiliary sample `v`.
 
 See also: [`proposal!`](@ref)
 """

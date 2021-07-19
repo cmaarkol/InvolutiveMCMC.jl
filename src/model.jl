@@ -1,16 +1,18 @@
 # internal model structure consisting of prior and log-likelihood function
 
-struct iMCMCModel{I,A,L} <: AbstractMCMC.AbstractModel
+struct iMCMCModel{I,A,L,P} <: AbstractMCMC.AbstractModel
     "Involution."
     involution::I
     "Auxiliary kernel."
     auxiliary_kernel::A
     "Log likelihood function."
     loglikelihood::L
+    "Prior."
+    prior::P
 end
 
-function iMCMCModel(involution, auxiliary_kernel, loglikelihood)
-    return iMCMCModel{typeof(involution),typeof(auxiliary_kernel),typeof(loglikelihood)}(involution, auxiliary_kernel, loglikelihood)
+function iMCMCModel(involution, auxiliary_kernel, loglikelihood,prior)
+    return iMCMCModel{typeof(involution),typeof(auxiliary_kernel),typeof(loglikelihood),typeof(prior)}(involution, auxiliary_kernel, loglikelihood, prior)
 end
 
 # obtain involution
@@ -25,3 +27,6 @@ auxiliary_kernel(model::iMCMCModel, x) = model.auxiliary_kernel(x)
 
 # evaluate the loglikelihood of a sample
 Distributions.loglikelihood(model::iMCMCModel, x) = model.loglikelihood(x)
+
+# obtain auxiliary_kernel conditioned on x
+prior(model::iMCMCModel, x) = model.prior

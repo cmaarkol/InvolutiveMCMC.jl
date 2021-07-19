@@ -51,6 +51,16 @@ function AbstractMCMC.step(
     # compute the log Hastings acceptance ratio
     logabsdetjacinv = logabsdetjac(model, xsample, vsample)
     logα = newxloglikelihood + newvloglikelihood - xloglikelihood - vloglikelihood + logabsdetjacinv
+    # println("xsample = ", xsample)
+    # println("vsample = ", vsample)
+    # println("newxsample = ", newxsample)
+    # println("newvsample = ", newvsample)
+
+    # println("newxloglikelihood = ", newxloglikelihood)
+    # println("newvloglikelihood = ", newvloglikelihood)
+    # println("xloglikelihood = ", xloglikelihood)
+    # println("vloglikelihood = ", vloglikelihood)
+    # println("logα = ", logα)
 
     nextsample, nextstate = if -Random.randexp(rng) < logα
         newxsample, iMCMCState(newxsample, newxloglikelihood)
