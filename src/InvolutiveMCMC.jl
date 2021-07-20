@@ -2,11 +2,11 @@ module InvolutiveMCMC
 
 using AbstractMCMC: AbstractMCMC
 using Distributions: Distributions
-using Bijectors: Bijectors
+using Bijectors: Bijectors, ADBackend
 
 using Random: Random
 
-export iMCMCModel, iMCMC
+export iMCMCModel, iMCMC, Involution
 
 # reexports
 using AbstractMCMC: sample

@@ -21,7 +21,7 @@ function loglikelihood(x)
 end
 
 # involution
-inv(x,v) = (v,x)
+mh = Involution(s->s[2],s->s[1])
 
 # auxiliary kernel
 kernel(x) = MvNormal(x,1)
@@ -30,7 +30,7 @@ kernel(x) = MvNormal(x,1)
 prior = MvNormal(μ1,Σ1)
 
 # iMCMC Model
-model = iMCMCModel(inv,kernel,loglikelihood,prior)
+model = iMCMCModel(mh,kernel,loglikelihood,prior)
 
 # sample
 chn = Chains(sample(rng,model,sampler,1000))
