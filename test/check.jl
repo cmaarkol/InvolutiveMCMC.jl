@@ -14,6 +14,12 @@ sampler = iMCMC()
 # swap involution for MH
 mh = Involution(s->s[2],s->s[1])
 
+# single-site update (only works for multivariate distributions)
+gibb1 = Involution(
+    s->vcat(s[2][1],s[1][2:end]),
+    s->vcat(s[1][1],s[2][2:end])
+)
+
 # continuous iMCMCModel
 conkernel(x) = Distributions.Normal(x,1)
 conprior = Distributions.Normal()

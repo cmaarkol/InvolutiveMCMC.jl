@@ -23,6 +23,7 @@ struct Involution{T, A, AD} <: Bijectors.ADBijector{AD, 0}
     newv::A
 
     # TODO: implement a way to check whether the function is involutive, i.e. newx(newx(x,v), newv(x,v)), newv((newx(x,v), newv(x,v))) == x, v
+    # Φ == Array ∘ (s->map(f->f(s), [newx, newv]))
 end
 
 # ADBackend() returns ForwardDiffAD, which means we use ForwardDiff.jl for AD by default
@@ -30,19 +31,20 @@ function Involution(newx, newv)
     return Involution{typeof(newx), typeof(newv), ADBackend()}(newx,newv)
 end
 
-(b::Involution)(s) = vcat(b.newx(split_in_half(s)),b.newv(split_in_half(s)))
-(ib::Bijectors.Inverse{<:Involution})(s) = vcat(b.newx(split_in_half(s)),b.newv(split_in_half(s)))
+(b::Involution)(s) = vcat(b.newx(s),b.newv(s))
+(ib::Bijectors.Inverse{<:Involution})(s) = vcat(b.newx(s),b.newv(s))
 
 # run involution
-involution(model::iMCMCModel, x, v) = split_in_half(model.involution(vcat(x,v)))
+involution(model::iMCMCModel, s) = model.involution.newx(s), model.involution.newv(s)
 
 # compute the log Jacobian determinant of the involution of the state `(x,v)`
 function Bijectors.logabsdetjac(model::iMCMCModel, x, v)
-    Bijectors.logabsdetjac(model.involution,vcat(x, v))
+    flatv = collect(Iterators.flatten(v))
+    Bijectors.logabsdetjac(model.involution, vcat(x, flatv))
 end
 
 # obtain auxiliary_kernel conditioned on x
-auxiliary_kernel(model::iMCMCModel, x) = model.auxiliary_kernel(x)
+auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel
 
 # evaluate the loglikelihood of a sample
 Distributions.loglikelihood(model::iMCMCModel, x) = model.loglikelihood(x)

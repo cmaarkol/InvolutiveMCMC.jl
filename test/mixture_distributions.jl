@@ -6,6 +6,8 @@ using MCMCChains
 using LinearAlgebra
 using StatsPlots
 
+# Implementation of Mixture Proposal MCMC
+
 # random seed
 rng = MersenneTwister(1)
 
@@ -21,20 +23,22 @@ function loglikelihood(x)
 end
 
 # involution
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
+# Φ(x,a,v) = (v,a,x)
+# newx(x,a,v) = v
+# newv(x,a,v) = (a,x)
+mixture_inv = Involution(
+    s->s[2*Int(end/3)+1:end],
+    s->vcat(s[Int(end/3)+1:2*Int(end/3)],s[1:Int(end/3)])
+)
 
 # auxiliary kernel
-kernel(x) = MvNormal(x,1)
+mixture_kernels = [x -> MvNormal(x,I), a -> Dirichlet(abs.(a))]
 
 # prior
 prior = MvNormal(μ1,Σ1)
 
 # iMCMC Model
-model = iMCMCModel(mh,kernel,loglikelihood,prior)
+model = iMCMCModel(mixture_inv,mixture_kernels,loglikelihood,prior)
 
 # sample
 chn = Chains(sample(rng,model,sampler,1000))
-
-describe(chn)
-
-plot(chn)
