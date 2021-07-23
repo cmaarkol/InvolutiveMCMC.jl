@@ -43,15 +43,15 @@ function aux_kernel_loglikelihood(model::AbstractMCMC.AbstractModel, x, v)
     if typeof(kernels) <: AbstractArray
         p = 0; conditioned_sample = x
         for (kernel,vsample) in zip(kernels,v)
-            println(kernel(conditioned_sample))
-            println(vsample)
+            # println(kernel(conditioned_sample))
+            # println(vsample)
             p += Distributions.loglikelihood(kernel(conditioned_sample), vsample)
             conditioned_sample = vsample
         end
     else
         p = Distributions.loglikelihood(kernels(x), v)
     end
-    println("p = ",p)
+    # println("p = ",p)
     return p
 end
 
@@ -61,11 +61,17 @@ end
 Compute the proposal for the next sample using the `model`'s involution, the current sample `x` and the auxiliary sample `v`.
 """
 function proposal(model::AbstractMCMC.AbstractModel, x, v)
-    # flatten v if necessary
-    flatv = collect(Iterators.flatten(v))
-    flatstate = vcat(x,flatv)
-    newx, newflatv = involution(model, flatstate)
-    newv = reshape(newflatv, [length(elem) for elem in v])
+    if typeof(v) <: AbstractVector
+        # flatten v and then reshape newv
+        flatv = collect(Iterators.flatten(v))
+        flatstate = vcat(x,flatv)
+        newx, newflatv = involution(model, flatstate)
+        # println("newx = ", newx)
+        # println("newflatv = ", newflatv)
+        newv = reshape(newflatv, [length(elem) for elem in v])
+    else
+        newx, newv = involution(model, vcat(x,v))
+    end
     return newx, newv
 end
 
@@ -75,12 +81,12 @@ end
 Reshape the vector `s` into a vector describes by `shape`
 """
 function reshape(s::AbstractVector, shape)
+    length(s) == sum(shape) || error("Cannot reshape a vector with this shape")
     if length(s) == 0
         return s
     elseif all(shape .== 1)
         return s
     else
-        length(s) == sum(shape) || error("Cannot reshape a vector with this shape")
         current_index = 1
         news = typeof(s)[]
         for eshape in shape
@@ -88,18 +94,5 @@ function reshape(s::AbstractVector, shape)
             current_index += eshape
         end
         return news
-    end
-end
-"""
-    split_in_half(s)
-
-Split the array `s` in equal halves
-"""
-function split_in_half(s::AbstractArray)
-    dim = Int(length(s)/2)
-    if dim == 1
-        return typeof(s[1])(s[1]), typeof(s[2])(s[2])
-    else
-        return Vector{typeof(s[1])}(s[1:dim]), Vector{typeof(s[dim+1])}(s[dim+1:end])
     end
 end

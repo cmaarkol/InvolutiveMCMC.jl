@@ -23,16 +23,16 @@ function loglikelihood(x)
 end
 
 # involution
-# Φ(x,a,v) = (v,a,x)
-# newx(x,a,v) = v
-# newv(x,a,v) = (a,x)
+# Φ(x,a,y,v) = (v,a,y,x)
+# newx(x,a,y,v) = v
+# newv(x,a,y,v) = (a,y,x)
 mixture_inv = Involution(
-    s->s[2*Int(end/3)+1:end],
-    s->vcat(s[Int(end/3)+1:2*Int(end/3)],s[1:Int(end/3)])
+    s->s[3*Int(end/4)+1:end],
+    s->vcat(s[Int(end/4)+1:3*Int(end/4)],s[1:Int(end/4)])
 )
 
 # auxiliary kernel
-mixture_kernels = [x -> MvNormal(x,I), a -> Dirichlet(abs.(a))]
+mixture_kernels = [x -> MvNormal(x,I), a -> Dirichlet(abs.(a)), y -> MvNormal(y,I)]
 
 # prior
 prior = MvNormal(μ1,Σ1)
