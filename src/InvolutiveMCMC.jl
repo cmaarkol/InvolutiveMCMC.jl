@@ -6,7 +6,7 @@ using Bijectors: Bijectors, ADBackend
 
 using Random: Random
 
-export iMCMCModel, iMCMC, Involution
+export iMCMCModel, iMCMC, Involution, AuxKernel, CompositeAuxKernel
 
 # reexports
 using AbstractMCMC: sample

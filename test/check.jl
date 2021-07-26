@@ -12,8 +12,19 @@ rng = MersenneTwister(1)
 sampler = iMCMC()
 
 # swap involution for MH
-uni_mh = Involution(s->s[2],s->s[1])
-multi_mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
+mh = Involution(s->s[2],s->s[1])
+mmh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
+# Φ(x,a,y,v) = (v,a,y,x)
+# newx(x,a,y,v) = v
+# newv(x,a,y,v) = (a,y,x)
+cmh = n -> Involution(
+    s->s[end],
+    s->vcat(s[Int(end/(n+1))+1:n*Int(end/(n+1))],s[1:Int(end/(n+1))])
+)
+cmmh = n -> Involution(
+    s->s[n*Int(end/(n+1))+1:end],
+    s->vcat(s[Int(end/(n+1))+1:n*Int(end/(n+1))],s[1:Int(end/(n+1))])
+)
 
 # single-site update (only works for multivariate distributions)
 gibb1 = Involution(
@@ -21,40 +32,52 @@ gibb1 = Involution(
     s->vcat(s[1][1],s[2][2:end])
 )
 
-# continuous iMCMCModel
-conkernel(x) = Distributions.Normal(x,1)
-conprior = Distributions.Normal()
-conprogram = conprior
-conloglikelihood(x) = Distributions.logpdf(conprogram,x)
-conmodel = iMCMCModel(uni_mh,conkernel,conloglikelihood,conprior)
+# continuous (c)
+ckernel = AuxKernel(x->Normal(x,1))
+cprior = Normal()
+cprogram = cprior
+cloglikelihood(x) = logpdf(cprogram,x)
+cmodel = iMCMCModel(mh,ckernel,cloglikelihood,cprior)
 println("Sample from continuous model")
-sample(rng,conmodel,sampler,1000)
+sample(rng,cmodel,sampler,1000)
 
-# discrete iMCMCModel
-diskernel(x) = Distributions.Bernoulli(0.4)
-disprior = Distributions.Bernoulli(0.2)
-disprogram = disprior
-disloglikelihood(x) = Distributions.logpdf(disprogram,x)
-dismodel = iMCMCModel(uni_mh,diskernel,disloglikelihood,disprior)
+# discrete (d)
+dkernel = AuxKernel(x->Bernoulli(0.4))
+dprior = Bernoulli(0.2)
+dprogram = dprior
+dloglikelihood(x) = logpdf(dprogram,x)
+dmodel = iMCMCModel(mh,dkernel,dloglikelihood,dprior)
 println("Sample from discrete model")
-sample(rng,conmodel,sampler,1000)
+sample(rng,dmodel,sampler,1000)
 
-# continuous multivariate iMCMCModel with dimension mcon
-mcon = 5
-mconkernel(x) = Distributions.MvNormal(x, I)
-mconprior = Distributions.MvNormal(rand(mcon), I)
-mconprogram = mconprior
-mconloglikelihood(x) = Distributions.logpdf(mconprogram,x)
-mconmodel = iMCMCModel(multi_mh,mconkernel,mconloglikelihood,mconprior)
+# multivariate continuous (mc)
+mcdim = 5
+mckernel = AuxKernel(x->MvNormal(x, I))
+mcprior = MvNormal(rand(mcdim), I)
+mcprogram = mcprior
+mcloglikelihood(x) = logpdf(mcprogram,x)
+mcmodel = iMCMCModel(mmh,mckernel,mcloglikelihood,mcprior)
 println("Sample from multivariate continuous model")
-sample(rng,mconmodel,sampler,1000)
+sample(rng,mcmodel,sampler,1000)
 
-# discrete multivariate iMCMCModel with dimension mdis
-mdis = 5
-mdiskernel(x) = Distributions.Multinomial(1, [i==1 ? 0.5 : 1 for i in x]/(mdis-0.5))
-mdisprior = Distributions.Multinomial(1, fill(1,mdis)/mdis)
-mdisprogram = mdisprior
-mdisloglikelihood(x) = Distributions.logpdf(mdisprogram,x)
-mdismodel = iMCMCModel(multi_mh,mdiskernel,mdisloglikelihood,mdisprior)
+# multivariate discrete (md)
+mddim = 5
+mdkernel = AuxKernel(x->Multinomial(1, [i==1 ? 0.5 : 1 for i in x]/(mddim-0.5)))
+mdprior = Multinomial(1, fill(1,mddim)/mddim)
+mdprogram = mdprior
+mdloglikelihood(x) = logpdf(mdprogram,x)
+mdmodel = iMCMCModel(mmh,mdkernel,mdloglikelihood,mdprior)
 println("Sample from multivariate discrete model")
-sample(rng,mdismodel,sampler,1000)
+sample(rng,mdmodel,sampler,1000)
+
+# continuous composite kernel (cc)
+cckernel = CompositeAuxKernel([x->Normal(x,1), y->Normal(y,1)])
+ccmodel = iMCMCModel(cmh(2),cckernel,cloglikelihood,cprior)
+println("Sample from continuous model with composite kernel")
+sample(rng,ccmodel,sampler,1000)
+
+# muiltivate continuous composite kernel (mcc)
+mcckernel = CompositeAuxKernel([x -> MvNormal(x,I), a -> Dirichlet(abs.(a)), y -> MvNormal(y,I)])
+mccmodel = iMCMCModel(cmmh(3),mcckernel,mcloglikelihood,mcprior)
+println("Sample from multivariate continuous model with composite kernel")
+sample(rng,mccmodel,sampler,1000)

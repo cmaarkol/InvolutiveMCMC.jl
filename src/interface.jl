@@ -18,7 +18,9 @@ end
 Return a random sample from the `model`'s `auxiliary_kernel` conditioned on `x`
 
 """
-function aux_kernel_sampler(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel, x)
+aux_kernel_sampler(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel, x) = randkernel(rng, auxiliary_kernel(model), x)
+
+function aux_kernel_sampler_old(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel, x)
     kernels = auxiliary_kernel(model)
     if typeof(kernels) <: AbstractArray
         v = typeof(x)[]
@@ -38,7 +40,7 @@ end
 Return the log likelihood of `v` from the `model`'s `auxiliary_kernel` conditioned on `x`
 
 """
-function aux_kernel_loglikelihood(model::AbstractMCMC.AbstractModel, x, v)
+function aux_kernel_loglikelihood_old(model::AbstractMCMC.AbstractModel, x, v)
     kernels = auxiliary_kernel(model)
     if typeof(kernels) <: AbstractArray
         p = 0; conditioned_sample = x
@@ -65,6 +67,7 @@ function proposal(model::AbstractMCMC.AbstractModel, x, v)
         # flatten v and then reshape newv
         flatv = collect(Iterators.flatten(v))
         flatstate = vcat(x,flatv)
+        # println("flatstate = ", flatstate)
         newx, newflatv = involution(model, flatstate)
         # println("newx = ", newx)
         # println("newflatv = ", newflatv)

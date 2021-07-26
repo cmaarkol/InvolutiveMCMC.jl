@@ -1,5 +1,4 @@
-# internal model structure consisting of prior and log-likelihood function
-
+# internal model structure consisting of involution, auxiliary kernel, log-likelihood function and the prior.
 struct iMCMCModel{I,A,L,P} <: AbstractMCMC.AbstractModel
     "Involution."
     involution::I
@@ -15,7 +14,7 @@ function iMCMCModel(involution, auxiliary_kernel, loglikelihood,prior)
     return iMCMCModel{typeof(involution),typeof(auxiliary_kernel),typeof(loglikelihood),typeof(prior)}(involution, auxiliary_kernel, loglikelihood, prior)
 end
 
-# Implement involution Φ(x,v) = (newx,newv)
+# Involution Φ(x,v) = (newx,newv)
 struct Involution{T, A, AD} <: Bijectors.ADBijector{AD, 0}
     "New sample." # function that maps (x,v) to newx, i.e. π1∘Φ
     newx::T
@@ -42,6 +41,64 @@ function Bijectors.logabsdetjac(model::iMCMCModel, x, v)
     flatv = collect(Iterators.flatten(v))
     Bijectors.logabsdetjac(model.involution, vcat(x, flatv))
 end
+
+# Auxiliary kernel
+abstract type AbstractAuxKernel end
+
+struct AuxKernel{T} <: AbstractAuxKernel
+    "Auxiliary Kernel." # only one auxiliary kernel function
+    auxkernel::T
+end
+
+struct CompositeAuxKernel{T} <: AbstractAuxKernel
+    "Composition of Auxiliary Kernels." # vector of auxiliary kernel functions
+    comp_auxkernel::T
+end
+
+AuxKernel(auxkernel) = AuxKernel{typeof(auxkernel)}(auxkernel)
+
+CompositeAuxKernel(comp_auxkernel) = CompositeAuxKernel{typeof(comp_auxkernel)}(comp_auxkernel)
+
+function randkernel(rng::Random.AbstractRNG, k::AuxKernel, x)
+    dist = k.auxkernel(x)
+    if typeof(dist) <: Distributions.Sampleable
+        return Random.rand(rng,dist)
+    else
+        error("Auxiliary kernel conditioned on x is not sampleable.")
+    end
+end
+
+function randkernel(rng::Random.AbstractRNG, k::CompositeAuxKernel, x)
+    v = []
+    for kernel in k.comp_auxkernel
+        x = randkernel(rng, AuxKernel(kernel), x)
+        v = vcat(v,[x])
+    end
+    return v
+end
+
+function Distributions.loglikelihood(k::AuxKernel, x, v)
+    dist = k.auxkernel(x)
+    if typeof(dist) <: Distributions.Sampleable
+        return Distributions.loglikelihood(dist, v)
+    else
+        error("Auxiliary kernel conditioned on x is not sampleable.")
+    end
+end
+
+function Distributions.loglikelihood(k::CompositeAuxKernel, x, v)
+    return sum(map((kernel, xsample, vsample) -> Distributions.loglikelihood(AuxKernel(kernel), xsample, vsample), k.comp_auxkernel, vcat([x],v[1:end-1]), v))
+end
+
+
+# function randkernel(rng::Random.AbstractRNG, k::AbstractVector{AbstractAuxKernel}, x)
+#     dist = k.auxkernel(x)
+#     if typeof(dist) <: Distributions.Sampleable
+#         Random.rand(rng,dist)
+#     else
+#         error("Auxiliary kernel conditioned on x is not sampleable.")
+#     end
+# end
 
 # obtain auxiliary_kernel conditioned on x
 auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel

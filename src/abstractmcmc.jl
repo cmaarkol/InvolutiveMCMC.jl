@@ -36,11 +36,11 @@ function AbstractMCMC.step(
     # previous sample and its log likelihood
     xsample = state.sample
     xloglikelihood = state.loglikelihood
-    # print("xsample = ", xsample)
+    # println("xsample = ", xsample)
 
     # sample from the auxiliary kernel and compute its log likelihood
     vsample = aux_kernel_sampler(rng, model, xsample)
-    vloglikelihood = aux_kernel_loglikelihood(model, xsample, vsample)
+    vloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), xsample, vsample)
     # println("vsample = ", vsample)
     # println("vloglikelihood = ", vloglikelihood)
 
@@ -51,7 +51,7 @@ function AbstractMCMC.step(
 
     # compute the log likelihood of the newxsample and newvsample
     newxloglikelihood = Distributions.loglikelihood(model, newxsample)
-    newvloglikelihood = aux_kernel_loglikelihood(model, newxsample, newvsample)
+    newvloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), newxsample, newvsample)
     # println("newxloglikelihood = ", newxloglikelihood)
     # println("newvloglikelihood = ", newvloglikelihood)
 
