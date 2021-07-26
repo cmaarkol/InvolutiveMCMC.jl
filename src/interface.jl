@@ -9,7 +9,11 @@ function initial_sample(
     rng::Random.AbstractRNG,
     model::AbstractMCMC.AbstractModel
 )
-    return Random.rand(rng, prior(model))
+    if typeof(prior(model)) <: Distributions.Sampleable
+        return Random.rand(rng, prior(model))
+    else
+        return prior(model)
+    end
 end
 
 """
@@ -18,7 +22,7 @@ end
 Return a random sample from the `model`'s `auxiliary_kernel` conditioned on `x`
 
 """
-aux_kernel_sampler(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel, x) = randkernel(rng, auxiliary_kernel(model), x)
+aux_kernel_sampler(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel, x) = Random.rand(rng, x, auxiliary_kernel(model))
 
 function aux_kernel_sampler_old(rng::Random.AbstractRNG, model::AbstractMCMC.AbstractModel, x)
     kernels = auxiliary_kernel(model)

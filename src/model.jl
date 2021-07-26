@@ -55,11 +55,18 @@ struct CompositeAuxKernel{T} <: AbstractAuxKernel
     comp_auxkernel::T
 end
 
+struct ProductAuxKernel{T} <: AbstractAuxKernel
+    "Product of Auxiliary Kernels."
+    prod_auxkernel::T
+end
+
 AuxKernel(auxkernel) = AuxKernel{typeof(auxkernel)}(auxkernel)
 
 CompositeAuxKernel(comp_auxkernel) = CompositeAuxKernel{typeof(comp_auxkernel)}(comp_auxkernel)
 
-function randkernel(rng::Random.AbstractRNG, k::AuxKernel, x)
+ProductAuxKernel(comp_auxkernel) = ProductAuxKernel{typeof(comp_auxkernel)}(prod_auxkernel)
+
+function Random.rand(rng::Random.AbstractRNG, x, k::AuxKernel)
     dist = k.auxkernel(x)
     if typeof(dist) <: Distributions.Sampleable
         return Random.rand(rng,dist)
@@ -68,14 +75,20 @@ function randkernel(rng::Random.AbstractRNG, k::AuxKernel, x)
     end
 end
 
-function randkernel(rng::Random.AbstractRNG, k::CompositeAuxKernel, x)
+function Random.rand(rng::Random.AbstractRNG, x, k::CompositeAuxKernel)
     v = []
     for kernel in k.comp_auxkernel
-        x = randkernel(rng, AuxKernel(kernel), x)
+        x = Random.rand(rng, x, AuxKernel(kernel))
         v = vcat(v,[x])
     end
     return v
 end
+
+Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel) = map(
+    (kernel,xsample)->Random.rand(rng, xsample, AuxKernel(kernel)),
+    k.prod_auxkernel,
+    x
+)
 
 function Distributions.loglikelihood(k::AuxKernel, x, v)
     dist = k.auxkernel(x)
@@ -86,19 +99,19 @@ function Distributions.loglikelihood(k::AuxKernel, x, v)
     end
 end
 
-function Distributions.loglikelihood(k::CompositeAuxKernel, x, v)
-    return sum(map((kernel, xsample, vsample) -> Distributions.loglikelihood(AuxKernel(kernel), xsample, vsample), k.comp_auxkernel, vcat([x],v[1:end-1]), v))
-end
+Distributions.loglikelihood(k::CompositeAuxKernel, x, v) = sum(map(
+    (kernel, xsample, vsample) -> Distributions.loglikelihood(AuxKernel(kernel), xsample, vsample),
+    k.comp_auxkernel,
+    vcat([x],v[1:end-1]),
+    v
+))
 
-
-# function randkernel(rng::Random.AbstractRNG, k::AbstractVector{AbstractAuxKernel}, x)
-#     dist = k.auxkernel(x)
-#     if typeof(dist) <: Distributions.Sampleable
-#         Random.rand(rng,dist)
-#     else
-#         error("Auxiliary kernel conditioned on x is not sampleable.")
-#     end
-# end
+Distributions.loglikelihood(k::ProductAuxKernel, x, v) = sum(map(
+    (kernel, xsample, vsample) -> Distributions.loglikelihood(AuxKernel(kernel), xsample, vsample),
+    k.prod_auxkernel,
+    x,
+    v
+))
 
 # obtain auxiliary_kernel conditioned on x
 auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel

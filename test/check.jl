@@ -81,3 +81,15 @@ mcckernel = CompositeAuxKernel([x -> MvNormal(x,I), a -> Dirichlet(abs.(a)), y -
 mccmodel = iMCMCModel(cmmh(3),mcckernel,mcloglikelihood,mcprior)
 println("Sample from multivariate continuous model with composite kernel")
 sample(rng,mccmodel,sampler,1000)
+
+# product continuous (pc)
+pckernel = ProductAuxKernel([v1->Normal(v1,1), v2->Normal(v2+2,1), v3->Normal(v3-2,1)])
+pcprior = MvNormal([1,2,3],I)
+pcprogram = pcprior
+pcloglikelihood(x) = logpdf(pcprogram,x)
+pcmodel = iMCMCModel(mmh,pckernel,pcloglikelihood,pcprior)
+println("Sample from product continuous model")
+sample(rng,pcmodel,sampler,1000)
+
+# product multivariate continuous (pmc)
+
