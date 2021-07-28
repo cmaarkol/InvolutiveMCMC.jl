@@ -58,6 +58,7 @@ function AbstractMCMC.step(
     # compute the log Hastings acceptance ratio
     involutionlogabsdetjac = Bijectors.logabsdetjac(model, xsample, vsample)
     logα = newxloglikelihood + newvloglikelihood - xloglikelihood - vloglikelihood + involutionlogabsdetjac
+    # println("log acceptance ratio = ", logα)
 
     nextsample, nextstate = if -Random.randexp(rng) < logα
         newxsample, iMCMCState(newxsample, newxloglikelihood)

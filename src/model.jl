@@ -58,15 +58,18 @@ end
 struct ProductAuxKernel{T} <: AbstractAuxKernel
     "Product of Auxiliary Kernels."
     prod_auxkernel::T
+    "Shape"
+    shape::Vector{Int}
 end
 
 AuxKernel(auxkernel) = AuxKernel{typeof(auxkernel)}(auxkernel)
 
 CompositeAuxKernel(comp_auxkernel) = CompositeAuxKernel{typeof(comp_auxkernel)}(comp_auxkernel)
 
-ProductAuxKernel(comp_auxkernel) = ProductAuxKernel{typeof(comp_auxkernel)}(prod_auxkernel)
+ProductAuxKernel(comp_auxkernel, shape) = ProductAuxKernel{typeof(comp_auxkernel),typeof(shape)}(prod_auxkernel,shape)
 
 function Random.rand(rng::Random.AbstractRNG, x, k::AuxKernel)
+    x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
     dist = k.auxkernel(x)
     if typeof(dist) <: Distributions.Sampleable
         return Random.rand(rng,dist)
@@ -87,7 +90,7 @@ end
 Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel) = map(
     (kernel,xsample)->Random.rand(rng, xsample, AuxKernel(kernel)),
     k.prod_auxkernel,
-    x
+    reshape(x,k.shape)
 )
 
 function Distributions.loglikelihood(k::AuxKernel, x, v)
@@ -109,7 +112,7 @@ Distributions.loglikelihood(k::CompositeAuxKernel, x, v) = sum(map(
 Distributions.loglikelihood(k::ProductAuxKernel, x, v) = sum(map(
     (kernel, xsample, vsample) -> Distributions.loglikelihood(AuxKernel(kernel), xsample, vsample),
     k.prod_auxkernel,
-    x,
+    reshape(x,k.shape),
     v
 ))
 
@@ -117,7 +120,9 @@ Distributions.loglikelihood(k::ProductAuxKernel, x, v) = sum(map(
 auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel
 
 # evaluate the loglikelihood of a sample
-Distributions.loglikelihood(model::iMCMCModel, x) = model.loglikelihood(x)
+Distributions.loglikelihood(model::iMCMCModel, x) = model.loglikelihood(
+    typeof(x) <: AbstractVector ? collect(Iterators.flatten(x)) : x
+)
 
 # obtain `model`'s prior
 prior(model::iMCMCModel) = model.prior
