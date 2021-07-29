@@ -87,13 +87,18 @@ function Random.rand(rng::Random.AbstractRNG, x, k::CompositeAuxKernel)
     return v
 end
 
-Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel) = map(
-    (kernel,xsample)->Random.rand(rng, xsample, AuxKernel(kernel)),
-    k.prod_auxkernel,
-    reshape(x,k.shape)
-)
+function Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel)
+    vsample = map(
+        (kernel,xsample)->Random.rand(rng, xsample, AuxKernel(kernel)),
+        k.prod_auxkernel,
+        reshape(x,k.shape)
+    )
+    flatvsample = collect(Iterators.flatten(vsample))
+    return flatvsample
+end
 
 function Distributions.loglikelihood(k::AuxKernel, x, v)
+    x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
     dist = k.auxkernel(x)
     if typeof(dist) <: Distributions.Sampleable
         return Distributions.loglikelihood(dist, v)
@@ -113,7 +118,7 @@ Distributions.loglikelihood(k::ProductAuxKernel, x, v) = sum(map(
     (kernel, xsample, vsample) -> Distributions.loglikelihood(AuxKernel(kernel), xsample, vsample),
     k.prod_auxkernel,
     reshape(x,k.shape),
-    v
+    reshape(v,k.shape)
 ))
 
 # obtain auxiliary_kernel conditioned on x

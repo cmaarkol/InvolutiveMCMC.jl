@@ -37,6 +37,7 @@ function AbstractMCMC.step(
     xsample = state.sample
     xloglikelihood = state.loglikelihood
     # println("xsample = ", xsample)
+    # println("xloglikelihood = ", xloglikelihood)
 
     # sample from the auxiliary kernel and compute its log likelihood
     vsample = aux_kernel_sampler(rng, model, xsample)
@@ -57,6 +58,7 @@ function AbstractMCMC.step(
 
     # compute the log Hastings acceptance ratio
     involutionlogabsdetjac = Bijectors.logabsdetjac(model, xsample, vsample)
+    # println("involutionlogabsdetjac = ", involutionlogabsdetjac)
     logα = newxloglikelihood + newvloglikelihood - xloglikelihood - vloglikelihood + involutionlogabsdetjac
     # println("log acceptance ratio = ", logα)
 
