@@ -86,9 +86,9 @@ mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
 # proposal distribution for parameters
 kernel = ProductAuxKernel(
     vcat(
-        [σ₂ -> truncated(Normal(σ₂,1),0,Inf),
-        intercept -> Normal(intercept, 1)],
-        fill(m_i->Normal(m_i,1),size(train,2))
+        [AuxKernel(σ₂ -> truncated(Normal(σ₂,1),0,Inf)),
+        AuxKernel(intercept -> Normal(intercept, 1))],
+        fill(AuxKernel(m_i->Normal(m_i,1)),size(train,2))
     ),
     ones(Int,12)
 )
@@ -96,6 +96,6 @@ model = iMCMCModel(mh,kernel,model_loglikelihood,first_sample)
 
 # generate chain
 rng = MersenneTwister(1)
-imcmc_chn = Chains(sample(rng,model,iMCMC(),1000;discard_initial=10))
+imcmc_chn = Chains(sample(rng,model,iMCMC(),3000;discard_initial=10))
 plot(imcmc_chn)
 savefig("test/images/05-linear-regression-imcmc.png")

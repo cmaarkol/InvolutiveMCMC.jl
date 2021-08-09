@@ -91,9 +91,9 @@ mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
 # proposal distribution for parameters
 kernel = ProductAuxKernel(
     vcat(
-        fill(T_i->Dirichlet(ones(3)/3), 3),
-        fill(m_i->Normal(m_i,1),3),
-        fill(s_i->Categorical(ones(3)/3),30)
+        fill(AuxKernel(T_i->Dirichlet(ones(3)/3)), 3),
+        fill(AuxKernel(m_i->Normal(m_i,1)),3),
+        fill(AuxKernel(s_i->Categorical(ones(3)/3)),30)
     ),
     vcat([3,3,3],ones(Int,33))
 )

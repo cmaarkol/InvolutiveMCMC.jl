@@ -70,19 +70,19 @@ println("Sample from multivariate discrete model")
 sample(rng,mdmodel,sampler,N)
 
 # continuous composite kernel (cc)
-cckernel = CompositeAuxKernel([x->Normal(x,1), y->Normal(y,1)])
+cckernel = CompositeAuxKernel([AuxKernel(x->Normal(x,1)), AuxKernel(y->Normal(y,1))])
 ccmodel = iMCMCModel(cmh(2),cckernel,cloglikelihood,cprior)
 println("Sample from continuous model with composite kernel")
 sample(rng,ccmodel,sampler,N)
 
 # muiltivate continuous composite kernel (mcc)
-mcckernel = CompositeAuxKernel([x -> MvNormal(x,I), a -> Dirichlet(abs.(a)), y -> MvNormal(y,I)])
+mcckernel = CompositeAuxKernel([AuxKernel(x -> MvNormal(x,I)), AuxKernel(a -> Dirichlet(abs.(a))), AuxKernel(y -> MvNormal(y,I))])
 mccmodel = iMCMCModel(cmmh(3),mcckernel,mcloglikelihood,mcprior)
 println("Sample from multivariate continuous model with composite kernel")
 sample(rng,mccmodel,sampler,N)
 
 # product continuous (pc)
-pckernel = ProductAuxKernel([v1->Normal(v1,1), v2->Normal(v2+2,1), v3->Normal(v3-2,1)], ones(Int,3))
+pckernel = ProductAuxKernel([AuxKernel(v1->Normal(v1,1)), AuxKernel(v2->Normal(v2+2,1)), AuxKernel(v3->Normal(v3-2,1))], ones(Int,3))
 pcprior = MvNormal([1,2,3],I)
 pcprogram = pcprior
 pcloglikelihood(x) = logpdf(pcprogram,x)

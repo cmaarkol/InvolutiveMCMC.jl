@@ -71,11 +71,11 @@ model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, gmm_model)
 mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
 kernel = ProductAuxKernel(vcat([
   # proposal distribution for μ1
-  μ1 -> Normal(μ1,1),
+  AuxKernel(μ1 -> Normal(μ1,1)),
   # proposal distribution for μ2
-  μ2 -> Normal(μ2,1)],
+  AuxKernel(μ2 -> Normal(μ2,1))],
   # proposal distribution for k
-  fill(k -> Categorical([0.5,0.5]),size(data)[2])
+  fill(AuxKernel(k -> Categorical([0.5,0.5])),size(data)[2])
 ))
 model = iMCMCModel(mh,kernel,model_loglikelihood,fill(1,2+size(data)[2]))
 

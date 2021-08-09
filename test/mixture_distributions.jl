@@ -32,7 +32,11 @@ mixture_inv = Involution(
 )
 
 # auxiliary kernel
-mixture_kernels = CompositeAuxKernel([x -> MvNormal(x,I), a -> Dirichlet(abs.(a)), y -> MvNormal(y,I)])
+mixture_kernels = CompositeAuxKernel([
+    AuxKernel(x -> MvNormal(x,I)),
+    AuxKernel(a -> Dirichlet(abs.(a))),
+    AuxKernel(y -> MvNormal(y,I))
+])
 
 # prior
 prior = MvNormal(μ1,Σ1)

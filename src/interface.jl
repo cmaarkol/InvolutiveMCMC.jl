@@ -72,10 +72,12 @@ function proposal(model::AbstractMCMC.AbstractModel, x, v)
         flatv = collect(Iterators.flatten(v))
         flatstate = vcat(x,flatv)
         # println("flatstate = ", flatstate)
-        newx, newflatv = involution(model, flatstate)
-        # println("newx = ", newx)
-        # println("newflatv = ", newflatv)
-        newv = reshape(newflatv, [length(elem) for elem in v])
+        newflatx, newflatv = involution(model, flatstate)
+        println("newflatx = ", newflatx)
+        println("newflatv = ", newflatv)
+        # newv = reshape_sample(newflatv, [length(elem) for elem in v])
+        newx = model.involution.shapex(newflatx)
+        newv = model.involution.shapev(newflatv)
     else
         newx, newv = involution(model, vcat(x,v))
     end
@@ -87,13 +89,13 @@ end
 
 Reshape the vector `s` into a vector describes by `shape`
 """
-function reshape(s::AbstractVector, shape)
-    length(s) == sum(shape) || error("Cannot reshape a vector with this shape")
+function reshape_sample(s::AbstractVector, shape)
     if length(s) == 0
         return s
     elseif all(shape .== 1)
         return s
     else
+        length(s) == sum(shape) || error("Cannot reshape a vector with this shape")
         current_index = 1
         news = typeof(s)[]
         for eshape in shape
@@ -102,4 +104,26 @@ function reshape(s::AbstractVector, shape)
         end
         return news
     end
+end
+
+"""
+    trans_dim_gen_logπ(vi, spl::Sampler, model)
+
+Modified from `Turing.Inference.gen_logπ` to empty the `vi` to accommodate for samples of different length.
+
+Generate a function that takes `θ` and returns logpdf at `θ` for the model specified by
+`(vi, spl, model)`.
+"""
+function trans_dim_gen_logπ(vi, spl, model)
+    function logπ(x)::Float64
+        x_old, lj_old = vi[spl], getlogp(vi)
+        empty!(vi) # empty vi (added line)
+        vi[spl] = x
+        model(vi, spl)
+        lj = getlogp(vi)
+        vi[spl] = x_old
+        setlogp!(vi, lj_old)
+        return lj
+    end
+    return logπ
 end
