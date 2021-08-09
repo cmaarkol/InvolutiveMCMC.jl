@@ -73,8 +73,8 @@ function proposal(model::AbstractMCMC.AbstractModel, x, v)
         flatstate = vcat(x,flatv)
         # println("flatstate = ", flatstate)
         newflatx, newflatv = involution(model, flatstate)
-        println("newflatx = ", newflatx)
-        println("newflatv = ", newflatv)
+        # println("newflatx = ", newflatx)
+        # println("newflatv = ", newflatv)
         # newv = reshape_sample(newflatv, [length(elem) for elem in v])
         newx = model.involution.shapex(newflatx)
         newv = model.involution.shapev(newflatv)
@@ -126,4 +126,32 @@ function trans_dim_gen_logπ(vi, spl, model)
         return lj
     end
     return logπ
+end
+
+
+"""
+    insert_list(x1::AbstractVector,i::Int64,x2::AbstractVector)
+
+insert `x2` into `x1` at position `i`
+"""
+
+function insert_list(x1::AbstractVector,i::Int64,x2::AbstractVector)
+    res = Float64.(x1)
+    inserted = 1
+    while inserted <= length(x2)
+        res = insert!(res,i+inserted-1,x2[inserted])
+        inserted += 1
+    end
+    return res
+end
+
+"""
+    remove_list(x::AbstractVector,i::Int64,n::Int64)
+
+remove `x[i:i+n-1]` from `x`
+"""
+
+function remove_list(x::AbstractVector,i::Int64,n::Int64)
+    res = vcat(x[1:i-1],x[i+n:end])
+    return res
 end

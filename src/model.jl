@@ -60,27 +60,7 @@ struct AuxKernel{T} <: AbstractAuxKernel
     auxkernel::T
 end
 
-struct CompositeAuxKernel{T} <: AbstractAuxKernel
-    "Composition of Auxiliary Kernels." # vector of auxiliary kernel functions
-    comp_auxkernel::T
-end
-
-struct ProductAuxKernel{T} <: AbstractAuxKernel
-    "Product of Auxiliary Kernels."
-    prod_auxkernel::T
-    "Shape"
-    shape
-    # if cross_ref, prod_auxkernel is of type {samples} -> Vector{Distributions}
-    # if not cross_ref, prod_auxkernel is of type Vector{samples -> Distributions}
-    "Cross Reference"
-    cross_ref::Bool
-end
-
 AuxKernel(auxkernel) = AuxKernel{typeof(auxkernel)}(auxkernel)
-
-CompositeAuxKernel(comp_auxkernel) = CompositeAuxKernel{typeof(comp_auxkernel)}(comp_auxkernel)
-
-ProductAuxKernel(prod_auxkernel, shape; cross_ref=false) = ProductAuxKernel{typeof(prod_auxkernel)}(prod_auxkernel,shape,cross_ref)
 
 function Random.rand(rng::Random.AbstractRNG, x, k::AuxKernel)
     x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
@@ -92,6 +72,23 @@ function Random.rand(rng::Random.AbstractRNG, x, k::AuxKernel)
     end
 end
 
+function Distributions.loglikelihood(k::AuxKernel, x, v)
+    x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
+    dist = k.auxkernel(x)
+    if typeof(dist) <: Distributions.Sampleable
+        return Distributions.loglikelihood(dist, v)
+    else
+        error("Auxiliary kernel conditioned on x is not sampleable.")
+    end
+end
+
+struct CompositeAuxKernel{T} <: AbstractAuxKernel
+    "Composition of Auxiliary Kernels." # vector of auxiliary kernel functions
+    comp_auxkernel::T
+end
+
+CompositeAuxKernel(comp_auxkernel) = CompositeAuxKernel{typeof(comp_auxkernel)}(comp_auxkernel)
+
 function Random.rand(rng::Random.AbstractRNG, x, k::CompositeAuxKernel)
     v = []
     for kernel in k.comp_auxkernel
@@ -100,6 +97,28 @@ function Random.rand(rng::Random.AbstractRNG, x, k::CompositeAuxKernel)
     end
     return v
 end
+
+Distributions.loglikelihood(k::CompositeAuxKernel, x, v) = sum(map(
+    (kernel, xsample, vsample) -> Distributions.loglikelihood(kernel, xsample, vsample),
+    k.comp_auxkernel,
+    vcat([x],v[1:end-1]),
+    v
+))
+
+struct ProductAuxKernel{T} <: AbstractAuxKernel
+    "Product of Auxiliary Kernels."
+    prod_auxkernel::T
+    "Shape"
+    shape
+    # if cross_ref, prod_auxkernel is of type {samples} -> Vector{Distributions}
+    # if not cross_ref, prod_auxkernel is of type Vector{samples -> Distributions}
+    "Cross Reference"
+    cross_ref::Bool
+    "A tuple (f,k) which copy f(input) at index n"
+    copy_info
+end
+
+ProductAuxKernel(prod_auxkernel, shape; cross_ref=false, copy_info=(f=x->[],n=0)) = ProductAuxKernel{typeof(prod_auxkernel)}(prod_auxkernel,shape,cross_ref,copy_info)
 
 function Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel)
     if k.cross_ref
@@ -114,28 +133,15 @@ function Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel)
             reshape_sample(x,k.shape)
         )
     end
+    vsample = k.copy_info.n==0 ? vsample :
+        insert_list(vsample, k.copy_info.n, k.copy_info.f(x))
     flatvsample = collect(Iterators.flatten(vsample))
     return flatvsample
 end
 
-function Distributions.loglikelihood(k::AuxKernel, x, v)
-    x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
-    dist = k.auxkernel(x)
-    if typeof(dist) <: Distributions.Sampleable
-        return Distributions.loglikelihood(dist, v)
-    else
-        error("Auxiliary kernel conditioned on x is not sampleable.")
-    end
-end
-
-Distributions.loglikelihood(k::CompositeAuxKernel, x, v) = sum(map(
-    (kernel, xsample, vsample) -> Distributions.loglikelihood(kernel, xsample, vsample),
-    k.comp_auxkernel,
-    vcat([x],v[1:end-1]),
-    v
-))
-
 function Distributions.loglikelihood(k::ProductAuxKernel, x, v)
+    v = k.copy_info.n==0 ? v :
+        remove_list(v, k.copy_info.n, length(k.copy_info.f(x)))
     if k.cross_ref
         return sum(map(
             (dist,vsample) -> Distributions.loglikelihood(dist,vsample),

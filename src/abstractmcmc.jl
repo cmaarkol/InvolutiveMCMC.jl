@@ -67,6 +67,6 @@ function AbstractMCMC.step(
     else
         xsample, iMCMCState(xsample, xloglikelihood)
     end
-
+    # println(nextsample)
     return nextsample, nextstate
 end
