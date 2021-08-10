@@ -30,29 +30,14 @@ iterations = 1000
 model_fun = infinite_gmm(data);
 chain = sample(model_fun, SMC(), iterations);
 
-# # Extract the number of mixture for each sample of the Markov chain.
-# ks = Array(chain)[:,1] .+ 1
+# Extract the number of mixture for each sample of the Markov chain.
+ks = Array(chain)[:,1] .+ 1
 
-# histogram(ks, xlabel = "Number of clusters", legend = false)
-# savefig("test/images/infinite-gmm-histogram-smc.png")
+histogram(ks, xlabel = "Number of clusters", legend = false)
+savefig("test/images/infinite-gmm-histogram-smc.png")
 
 # Using iMCMC as the sampler
 using DynamicPPL, LinearAlgebra, InvolutiveMCMC, InfiniteArrays
-
-function trans_dim_gen_logπ(vi, spl, model)
-    function logπ(x)::Float64
-        # x_old, lj_old = vi[spl], getlogp(vi)
-        empty!(vi) # empty vi (added line)
-        vi[spl] = x
-        model(vi, spl)
-        lj = getlogp(vi)
-        # empty!(vi) # empty vi (added line)
-        # vi[spl] = x_old
-        # setlogp!(vi, lj_old)
-        return lj
-    end
-    return logπ
-end
 
 # generate the log likelihood of model
 spl = DynamicPPL.SampleFromPrior()
@@ -83,23 +68,6 @@ auxvar_kernel = ProductAuxKernel(
 # define a RJMCMC iMCMC model
 kernel = CompositeAuxKernel([mode_kernel,auxvar_kernel])
 
-# kernel = CompositeAuxKernel([
-#     mode_kernel,
-#     ProductAuxKernel(
-#         xs->vcat(
-#             # copy of mode j=xs[1]
-#             [Dirac(xs[1])],
-#             # sample means of already defined normal distributions
-#             map(i->Normal(xs[i],1.0),3:3+ Int(min(xs[1],xs[2]))),
-#             # sample means of new normal distributions
-#             fill(Normal(0.0,1.0),max(0,Int(xs[1]-xs[2]))),
-#             # Categorical distribution for the data
-#             fill(Categorical(ones(Int(xs[1])+1)/(Int(xs[1])+1)), length(data))),
-#         Ones(∞),
-#         cross_ref = true
-#     )
-# ])
-
 # involution
 length_of_m_mixture_sample = m->1+m+length(data)
 rjmcmc_inv = Involution(
@@ -118,9 +86,8 @@ model = iMCMCModel(rjmcmc_inv,kernel,model_loglikelihood,first_sample)
 
 # generate chain
 rng = MersenneTwister(1)
-imcmc_chain = sample(rng,model,iMCMC(),10000;discard_initial=10)
+imcmc_chain = sample(rng,model,iMCMC(),1000;discard_initial=10)
 
 imcmc_ks = [state[1]+1 for state in imcmc_chain]
-
 histogram(imcmc_ks, xlabel = "Number of clusters", legend = false)
 savefig("test/images/infinite-gmm-histogram-imcmc.png")

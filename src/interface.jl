@@ -116,13 +116,13 @@ Generate a function that takes `θ` and returns logpdf at `θ` for the model spe
 """
 function trans_dim_gen_logπ(vi, spl, model)
     function logπ(x)::Float64
-        x_old, lj_old = vi[spl], getlogp(vi)
+        # x_old, lj_old = vi[spl], getlogp(vi)
         empty!(vi) # empty vi (added line)
         vi[spl] = x
         model(vi, spl)
-        lj = getlogp(vi)
-        vi[spl] = x_old
-        setlogp!(vi, lj_old)
+        lj = Turing.Inference.getlogp(vi)
+        # vi[spl] = x_old
+        # setlogp!(vi, lj_old)
         return lj
     end
     return logπ
