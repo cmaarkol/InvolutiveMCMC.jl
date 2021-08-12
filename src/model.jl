@@ -177,6 +177,11 @@ function Distributions.loglikelihood(k::ProductAuxKernel, x, v)
     end
 end
 
+"""
+    `ModelAuxKernel` constructs an auxiliary kernel via the `@model` macro.
+
+The model is assumed to be parametric and has to return all "raw" sampled values.
+"""
 struct ModelAuxKernel{T} <: AbstractAuxKernel
     "Model Function."
     model_function::T
@@ -188,20 +193,18 @@ ModelAuxKernel(model_function;sampler = DynamicPPL.SampleFromPrior()) = ModelAux
 
 function Random.rand(rng::Random.AbstractRNG, x, k::ModelAuxKernel)
     modelkernel = k.model_function(x)
-    vsample = sample(modelkernel, k.sampler, 1)[1].metadata.vals[1]
+    modelsampler = k.sampler
+    lj = VarInfo(modelkernel, modelsampler)
+    vsample = modelkernel(lj, modelsampler)
     return vsample
 end
 
 function Distributions.loglikelihood(k::ModelAuxKernel, x, v)
     modelkernel = k.model_function(x)
     vi = VarInfo(modelkernel)
-    empty!(vi)
-    vi[k.sampler] = v
-    model(vi, k.sampler)
-    return Turing.Inference.getlogp(vi)
+    logp = trans_dim_gen_logπ(vi, k.sampler, modelkernel)(v)
+    return logp
 end
-
-
 
 # obtain auxiliary_kernel conditioned on x
 auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel

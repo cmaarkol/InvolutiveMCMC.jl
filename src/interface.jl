@@ -118,6 +118,7 @@ empty_vns is a Vector of DynamicPPL.Metadata which is dependent on the values of
 """
 function trans_dim_gen_logπ(vi, spl, model; empty_vns=[])
     function logπ(x)::Float64
+        x = vcat(x)
         # This is required to ensure the length of unbounded variables are not fixed
         for vns in empty_vns
             DynamicPPL._empty!(vns)

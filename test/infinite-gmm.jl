@@ -48,13 +48,13 @@ log_joint = VarInfo(model_fun, spl)
 model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun, empty_vns=[log_joint.metadata.μ,log_joint.metadata.z])
 first_sample = log_joint[spl]
 
+# define a RJMCMC iMCMC model using CompositeAuxKernel and ProductAuxKernel
 mode_kernel = ProductAuxKernel(
     xs -> [DiscreteUniform(max(0,xs[1]-1),xs[1]+1)],
     [1],
     cross_ref = true,
     copy_info = (f=identity,n=2)
 )
-
 auxvar_kernel = ProductAuxKernel(
     xs->vcat(
         # sample means of already defined normal distributions
@@ -67,8 +67,6 @@ auxvar_kernel = ProductAuxKernel(
     cross_ref = true,
     copy_info = (f=xs->[xs[1]],n=1)
 )
-
-# define a RJMCMC iMCMC model
 kernel = CompositeAuxKernel([mode_kernel,auxvar_kernel])
 
 # involution

@@ -70,6 +70,12 @@ end
     y ~ Normal(x,1)
 end
 
+@model function simple(x)
+    y ~ Normal(x,1)
+    z ~ Normal(9,1)
+    return y
+end
+
 @model function np_simple(x)
     k ~ Poisson(3.0)
     println("k = ", k)
