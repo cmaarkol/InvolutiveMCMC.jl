@@ -105,6 +105,21 @@ Distributions.loglikelihood(k::CompositeAuxKernel, x, v) = sum(map(
     v
 ))
 
+# @model function ProductAuxKernel(x)
+#     x' = pre_sample(x)
+#     if cross_ref
+#         y ~ prod_auxkernel(x')
+#     else
+#         y = tzeros(Float64, length(x'))
+#         for i in 1:length(x')
+#             y[i] ~ prod_auxkernel[i](x'[i])
+#         end
+#     end
+#     (f,k) = copy_info
+#     y' = insert_list(y, k, f(x))
+#     return y'
+# end
+
 struct ProductAuxKernel{T} <: AbstractAuxKernel
     "Product of Auxiliary Kernels."
     prod_auxkernel::T
@@ -116,21 +131,24 @@ struct ProductAuxKernel{T} <: AbstractAuxKernel
     cross_ref::Bool
     "A tuple (f,k) which copy f(input) at index n"
     copy_info
+    "Pre Sampling Function"
+    pre_sample
 end
 
-ProductAuxKernel(prod_auxkernel, shape; cross_ref=false, copy_info=(f=x->[],n=0)) = ProductAuxKernel{typeof(prod_auxkernel)}(prod_auxkernel,shape,cross_ref,copy_info)
+ProductAuxKernel(prod_auxkernel, shape; cross_ref=false, copy_info=(f=x->[],n=0),pre_sample=identity) = ProductAuxKernel{typeof(prod_auxkernel)}(prod_auxkernel,shape,cross_ref,copy_info,pre_sample)
 
 function Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel)
+    newx = k.pre_sample(x)
     if k.cross_ref
         vsample = map(
             dist->Random.rand(rng,dist),
-            k.prod_auxkernel(x)
+            k.prod_auxkernel(newx)
         )
     else
         vsample = map(
             (kernel,xsample)->Random.rand(rng, xsample, kernel),
             k.prod_auxkernel,
-            reshape_sample(x,k.shape)
+            reshape_sample(newx,k.shape)
         )
     end
     vsample = k.copy_info.n==0 ? vsample :
@@ -142,21 +160,48 @@ end
 function Distributions.loglikelihood(k::ProductAuxKernel, x, v)
     v = k.copy_info.n==0 ? v :
         remove_list(v, k.copy_info.n, length(k.copy_info.f(x)))
+    newx = k.pre_sample(x)
     if k.cross_ref
         return sum(map(
             (dist,vsample) -> Distributions.loglikelihood(dist,vsample),
-            k.prod_auxkernel(x),
+            k.prod_auxkernel(newx),
             reshape_sample(v,k.shape)
         ))
     else
         return sum(map(
             (kernel, xsample, vsample) -> Distributions.loglikelihood(kernel, xsample, vsample),
             k.prod_auxkernel,
-            reshape_sample(x,k.shape),
+            reshape_sample(newx,k.shape),
             reshape_sample(v,k.shape)
         ))
     end
 end
+
+struct ModelAuxKernel{T} <: AbstractAuxKernel
+    "Model Function."
+    model_function::T
+    "Sampler"
+    sampler
+end
+
+ModelAuxKernel(model_function;sampler = DynamicPPL.SampleFromPrior()) = ModelAuxKernel{typeof(model_function)}(model_function, sampler)
+
+function Random.rand(rng::Random.AbstractRNG, x, k::ModelAuxKernel)
+    modelkernel = k.model_function(x)
+    vsample = sample(modelkernel, k.sampler, 1)[1].metadata.vals[1]
+    return vsample
+end
+
+function Distributions.loglikelihood(k::ModelAuxKernel, x, v)
+    modelkernel = k.model_function(x)
+    vi = VarInfo(modelkernel)
+    empty!(vi)
+    vi[k.sampler] = v
+    model(vi, k.sampler)
+    return Turing.Inference.getlogp(vi)
+end
+
+
 
 # obtain auxiliary_kernel conditioned on x
 auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel

@@ -9,17 +9,20 @@ data /= std(data);
 @model function infinite_gmm(x)
     # number of mixtures
     k ~ Poisson(3.0)
+    # println("k = ",k)
     K = Int(k)+1
     # means of each mixture
     μ = tzeros(Float64, K)
     for i in 1:K
         μ[i] ~ Normal(0.0,1.0)
+        # println("μ[",i,"] = ", μ[i])
     end
 
     # Draw observation
-    z = tzeros(Int, length(x))
+    z = tzeros(length(x))
     for j in 1:length(x)
         z[j] ~ Categorical(ones(K)/K)
+        # println("z[",j,"] = ", z[j])
         x[j] ~ Normal(μ[Int(z[j])], 1.0)
     end
 end
@@ -41,8 +44,8 @@ using DynamicPPL, LinearAlgebra, InvolutiveMCMC, InfiniteArrays
 
 # generate the log likelihood of model
 spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(model_fun, spl) # If you want the log joint
-model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun)
+log_joint = VarInfo(model_fun, spl)
+model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun, empty_vns=[log_joint.metadata.μ,log_joint.metadata.z])
 first_sample = log_joint[spl]
 
 mode_kernel = ProductAuxKernel(

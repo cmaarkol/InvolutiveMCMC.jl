@@ -107,22 +107,26 @@ function reshape_sample(s::AbstractVector, shape)
 end
 
 """
-    trans_dim_gen_logπ(vi, spl::Sampler, model)
+    trans_dim_gen_logπ(vi, spl::Sampler, model; empty_vns=[])
 
-Modified from `Turing.Inference.gen_logπ` to empty the `vi` to accommodate for samples of different length.
+Modified from `Turing.Inference.gen_logπ` to accommodate for samples of different length.
 
 Generate a function that takes `θ` and returns logpdf at `θ` for the model specified by
 `(vi, spl, model)`.
+
+empty_vns is a Vector of DynamicPPL.Metadata which is dependent on the values of other variables
 """
-function trans_dim_gen_logπ(vi, spl, model)
+function trans_dim_gen_logπ(vi, spl, model; empty_vns=[])
     function logπ(x)::Float64
-        # x_old, lj_old = vi[spl], getlogp(vi)
-        empty!(vi) # empty vi (added line)
-        vi[spl] = x
-        model(vi, spl)
+        # This is required to ensure the length of unbounded variables are not fixed
+        for vns in empty_vns
+            DynamicPPL._empty!(vns)
+        end
+        vi[spl] = x # set all values except the ones in empty_vns
+        model(vi, spl) # run model with the set values (This has the effect of fixing the dimension of other values)
+        vi[spl] = x # set all values according to x
+        model(vi, spl) # run model with x
         lj = Turing.Inference.getlogp(vi)
-        # vi[spl] = x_old
-        # setlogp!(vi, lj_old)
         return lj
     end
     return logπ
