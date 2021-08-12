@@ -45,7 +45,8 @@ using DynamicPPL, LinearAlgebra, InvolutiveMCMC, InfiniteArrays
 # generate the log likelihood of model
 spl = DynamicPPL.SampleFromPrior()
 log_joint = VarInfo(model_fun, spl)
-model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun, empty_vns=[log_joint.metadata.μ,log_joint.metadata.z])
+model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun)
+# model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun, empty_vns=[log_joint.metadata.μ,log_joint.metadata.z])
 first_sample = log_joint[spl]
 
 # define a RJMCMC iMCMC model using CompositeAuxKernel and ProductAuxKernel

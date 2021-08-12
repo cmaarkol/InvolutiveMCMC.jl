@@ -66,6 +66,27 @@ function empty_gen_logπ(vi, spl, model, empty_vns)
     return logπ
 end
 
+function np_gen_logπ(vi, spl, model)
+    function logπ(x)::Float64
+        # number of variables in vi
+        n = length(vi.metadata)
+        # set the values for variables one by one
+        for i in 1:n
+            # empty data stored in vi for variables i+1:n
+            for j in i+1:n
+                DynamicPPL._empty!(vi.metadata[j])
+            end
+            # set variable at i according to x
+            vi[spl] = x
+            # run model with new value for variable i, which initialises the dimension for variable i+1
+            model(vi, spl)
+        end
+        lj = Turing.Inference.getlogp(vi)
+        return lj
+    end
+    return logπ
+end
+
 @model function simple(x)
     y ~ Normal(x,1)
 end

@@ -113,20 +113,23 @@ Modified from `Turing.Inference.gen_logπ` to accommodate for samples of differe
 
 Generate a function that takes `θ` and returns logpdf at `θ` for the model specified by
 `(vi, spl, model)`.
-
-empty_vns is a Vector of DynamicPPL.Metadata which is dependent on the values of other variables
 """
-function trans_dim_gen_logπ(vi, spl, model; empty_vns=[])
+function trans_dim_gen_logπ(vi, spl, model)
     function logπ(x)::Float64
         x = vcat(x)
-        # This is required to ensure the length of unbounded variables are not fixed
-        for vns in empty_vns
-            DynamicPPL._empty!(vns)
+        # number of variables in vi
+        n = length(vi.metadata)
+        # set the values for variables one by one
+        for i in 1:n
+            # empty data stored in vi for variables i+1:n
+            for j in i+1:n
+                DynamicPPL._empty!(vi.metadata[j])
+            end
+            # set variable at i according to x
+            vi[spl] = x
+            # run model with new value for variable i, which initialises the dimension for variable i+1
+            model(vi, spl)
         end
-        vi[spl] = x # set all values except the ones in empty_vns
-        model(vi, spl) # run model with the set values (This has the effect of fixing the dimension of other values)
-        vi[spl] = x # set all values according to x
-        model(vi, spl) # run model with x
         lj = Turing.Inference.getlogp(vi)
         return lj
     end
