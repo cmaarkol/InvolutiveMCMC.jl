@@ -52,8 +52,8 @@ function AbstractMCMC.step(
 
     # compute the log likelihood of the newxsample and newvsample
     newxloglikelihood = Distributions.loglikelihood(model, newxsample)
-    newvloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), newxsample, newvsample)
     # println("newxloglikelihood = ", newxloglikelihood)
+    newvloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), newxsample, newvsample)
     # println("newvloglikelihood = ", newvloglikelihood)
 
     # compute the log Hastings acceptance ratio

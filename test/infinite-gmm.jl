@@ -30,26 +30,35 @@ end
 # MCMC sampling
 Random.seed!(2)
 iterations = 1000
-model_fun = infinite_gmm(data);
-chain = sample(model_fun, SMC(), iterations);
+model_gmm = infinite_gmm(data);
 
-# Extract the number of mixture for each sample of the Markov chain.
+"""
+    Sample using SMC
+"""
+
+chain = sample(model_gmm, SMC(), iterations)
 ks = Array(chain)[:,1] .+ 1
-
 histogram(ks, xlabel = "Number of clusters", legend = false)
 savefig("test/images/infinite-gmm-histogram-smc.png")
 
-# Using iMCMC as the sampler
+"""
+    Sample using iMCMC
+"""
+
+# import packages
 using DynamicPPL, LinearAlgebra, InvolutiveMCMC, InfiniteArrays
 
 # generate the log likelihood of model
 spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(model_fun, spl)
-model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun)
-# model_loglikelihood = trans_dim_gen_logπ(log_joint, spl, model_fun, empty_vns=[log_joint.metadata.μ,log_joint.metadata.z])
+log_joint = VarInfo(model_gmm, spl)
+model_lll = trans_dim_gen_logπ(log_joint, spl, model_gmm)
 first_sample = log_joint[spl]
 
-# define a RJMCMC iMCMC model using CompositeAuxKernel and ProductAuxKernel
+"""
+    First attempt
+"""
+
+# kernel using CompositeAuxKernel and ProductAuxKernel
 mode_kernel = ProductAuxKernel(
     xs -> [DiscreteUniform(max(0,xs[1]-1),xs[1]+1)],
     [1],
@@ -84,12 +93,69 @@ rjmcmc_inv = Involution(
     z_logabsdetjac = true,
     shapev = flatv -> [flatv[1:1+1+Int(flatv[2])+1+length(data)],flatv[1+1+Int(flatv[2])+1+length(data)+1:end]]
 )
-model = iMCMCModel(rjmcmc_inv,kernel,model_loglikelihood,first_sample)
+# model
+model = iMCMCModel(rjmcmc_inv,kernel,model_lll,first_sample)
 
-# generate chain
+# generate samples and plot histogram
 rng = MersenneTwister(1)
 imcmc_chain = sample(rng,model,iMCMC(),1000;discard_initial=10)
-
 imcmc_ks = [state[1]+1 for state in imcmc_chain]
 histogram(imcmc_ks, xlabel = "Number of clusters", legend = false)
 savefig("test/images/infinite-gmm-histogram-imcmc.png")
+
+
+"""
+    A very simple model which works quite well
+"""
+
+# kernel
+@model function simple_kernel(xs)
+    # unpack xs
+    k = xs[1]
+    K = Int(k)+1
+    μs = xs[2:K+1]
+    zs = xs[K+2:end]
+
+    newk ~ DiscreteUniform(max(0,k-1),k+1)
+    newK = Int(newk)+1
+    newμ = tzeros(Float64, newK)
+    for i in 1:newK
+        if i <= length(μs)
+            # sample means of existing normals
+            newμ[i] ~ Normal(μs[i],1.0)
+        else
+            # sample means of new normals
+            newμ[i] ~ Normal(0.0,1.0)
+        end
+    end
+
+    newz = tzeros(length(zs))
+    for j in 1:length(zs)
+        newz[j] ~ Categorical(ones(newK)/newK)
+    end
+
+    return vcat(newk, newμ, newz)
+end
+skernel = ModelAuxKernel(simple_kernel)
+
+# involution
+# split_points(s, n) return the splitting point of s where n is the length of the data
+function split_point(s, n)
+    k1 = s[1]
+    return 1+Int(k1)+1+n
+end
+smh = Involution(
+    s->s[split_point(s, length(data))+1:end],
+    s->s[1:split_point(s, length(data))],
+    z_logabsdetjac = true
+)
+
+# model
+smodel = iMCMCModel(smh,skernel,model_lll,first_sample)
+
+# generate chain
+rng = MersenneTwister(1)
+s_imcmc_chain = sample(rng,smodel,iMCMC(),1000;discard_initial=10)
+s_imcmc_ks = [state[1]+1 for state in s_imcmc_chain]
+histogram(s_imcmc_ks, xlabel = "Number of clusters", legend = false)
+savefig("test/images/infinite-gmm-histogram-imcmc-s.png")
