@@ -107,6 +107,30 @@ function reshape_sample(s::AbstractVector, shape)
 end
 
 """
+    deep_empty(meta::Metadata)
+
+Similar to `empty!(::Metadata)` in VarInfo but with the type of `meta.dists` also removed.
+"""
+
+function deep_empty!(meta::DynamicPPL.Metadata)
+    empty!(meta.idcs)
+    empty!(meta.vns)
+    empty!(meta.ranges)
+    empty!(meta.vals)
+    empty!(meta.dists)
+    # need to find a way to empty the type of meta.dists
+    # something like this would be brilliant
+    # convert!(Vector{Distribution}, meta.dists)
+    empty!(meta.gids)
+    empty!(meta.orders)
+    for k in keys(meta.flags)
+        empty!(meta.flags[k])
+    end
+    return meta
+end
+
+
+"""
     trans_dim_gen_logπ(vi, spl::Sampler, model; empty_vns=[])
 
 Modified from `Turing.Inference.gen_logπ` to accommodate for samples of different length.
@@ -123,7 +147,7 @@ function trans_dim_gen_logπ(vi, spl, model)
         for i in 1:n
             # empty data stored in vi for variables i+1:n
             for j in i+1:n
-                DynamicPPL._empty!(vi.metadata[j])
+                deep_empty!(vi.metadata[j])
             end
             # set variable at i according to x
             vi[spl] = x

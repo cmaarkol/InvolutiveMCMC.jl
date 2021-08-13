@@ -8,11 +8,10 @@ struct iMCMCModel{I,A,L,P} <: AbstractMCMC.AbstractModel
     loglikelihood::L
     "Prior."
     prior::P
+
+    iMCMCModel(involution, auxiliary_kernel, loglikelihood,prior) = new{typeof(involution),typeof(auxiliary_kernel),typeof(loglikelihood),typeof(prior)}(involution, auxiliary_kernel, loglikelihood, prior)
 end
 
-function iMCMCModel(involution, auxiliary_kernel, loglikelihood,prior)
-    return iMCMCModel{typeof(involution),typeof(auxiliary_kernel),typeof(loglikelihood),typeof(prior)}(involution, auxiliary_kernel, loglikelihood, prior)
-end
 
 # Involution Φ(x,v) = (newx,newv)
 struct Involution{T, A, AD} <: Bijectors.ADBijector{AD, 0}
@@ -58,9 +57,10 @@ abstract type AbstractAuxKernel end
 struct AuxKernel{T} <: AbstractAuxKernel
     "Auxiliary Kernel." # only one auxiliary kernel function
     auxkernel::T
+
+    AuxKernel(auxkernel) = new{typeof(auxkernel)}(auxkernel)
 end
 
-AuxKernel(auxkernel) = AuxKernel{typeof(auxkernel)}(auxkernel)
 
 function Random.rand(rng::Random.AbstractRNG, x, k::AuxKernel)
     x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
@@ -85,9 +85,10 @@ end
 struct CompositeAuxKernel{T} <: AbstractAuxKernel
     "Composition of Auxiliary Kernels." # vector of auxiliary kernel functions
     comp_auxkernel::T
+
+    CompositeAuxKernel(comp_auxkernel) = new{typeof(comp_auxkernel)}(comp_auxkernel)
 end
 
-CompositeAuxKernel(comp_auxkernel) = CompositeAuxKernel{typeof(comp_auxkernel)}(comp_auxkernel)
 
 function Random.rand(rng::Random.AbstractRNG, x, k::CompositeAuxKernel)
     v = []
