@@ -196,7 +196,8 @@ function Random.rand(rng::Random.AbstractRNG, x, k::ModelAuxKernel)
     modelkernel = k.model_function(x)
     modelsampler = k.sampler
     lj = VarInfo(modelkernel, modelsampler)
-    vsample = modelkernel(lj, modelsampler)
+    vsample = lj[modelsampler]
+    # vsample = modelkernel(lj, modelsampler)
     return vsample
 end
 

@@ -1,5 +1,7 @@
 using Turing, DynamicPPL, InfiniteArrays
 
+# Figure out how to generate the log likelihood of a posterior given by a Turing @model function.
+
 function my_gen_logπ(vi, spl, model)
     function logπ(x)::Float64
         # append x with infinite 1s in order to allow x with different lengths
@@ -87,6 +89,8 @@ function np_gen_logπ(vi, spl, model)
     return logπ
 end
 
+# simple model
+
 @model function simple(x)
     y ~ Normal(x,1)
 end
@@ -96,6 +100,16 @@ end
     z ~ Normal(9,1)
     return y
 end
+
+spl = DynamicPPL.SampleFromPrior()
+s_model = simple(2)
+s_lj = VarInfo(s_model, spl)
+s_lll = my_gen_logπ(s_lj, spl, s_model)
+true_s_lll(x) = Distributions.loglikelihood(Normal(2,1),x)
+test_s(x) = s_lll(x) ≈ true_s_lll(x)
+# test_s always return true means that my_gen_logπ does return the log likelihood of s_model
+
+# model with unbounded number of dimension
 
 @model function np_simple(x)
     k ~ Poisson(3.0)
@@ -110,6 +124,19 @@ end
     println("z = ", z)
     return K
 end
+
+spl = DynamicPPL.SampleFromPrior()
+np_s_model = np_simple(2)
+np_s_lj = VarInfo(np_s_model, spl)
+np_s_lll = empty_gen_logπ(np_s_lj, spl, np_s_model, [np_s_lj.metadata.y])
+true_np_s_lll(xs) =
+    Distributions.loglikelihood(Poisson(3.0),xs[1]) +
+    sum(map(x->Distributions.loglikelihood(Normal(2,1),x),xs[2:Int(xs[1])+2])) +
+    Distributions.loglikelihood(Categorical(ones(Int(xs[1])+1)/(Int(xs[1])+1)),xs[Int(xs[1])+3])
+test_np(x) = np_s_lll(x) ≈ true_np_s_lll(x)
+# test_np always return true means that my_gen_logπ does return the log likelihood of np_s_model
+
+# infinite Gaussian mixture model
 
 @model function infinite_gmm(x)
     # number of mixtures
@@ -133,24 +160,6 @@ end
 end
 
 spl = DynamicPPL.SampleFromPrior()
-
-s_model = simple(2)
-s_lj = VarInfo(s_model, spl)
-s_lll = my_gen_logπ(s_lj, spl, s_model)
-true_s_lll(x) = Distributions.loglikelihood(Normal(2,1),x)
-test_s(x) = s_lll(x) ≈ true_s_lll(x)
-# test_s always return true means that my_gen_logπ does return the log likelihood of s_model
-
-np_s_model = np_simple(2)
-np_s_lj = VarInfo(np_s_model, spl)
-np_s_lll = empty_gen_logπ(np_s_lj, spl, np_s_model, [np_s_lj.metadata.y])
-true_np_s_lll(xs) =
-    Distributions.loglikelihood(Poisson(3.0),xs[1]) +
-    sum(map(x->Distributions.loglikelihood(Normal(2,1),x),xs[2:Int(xs[1])+2])) +
-    Distributions.loglikelihood(Categorical(ones(Int(xs[1])+1)/(Int(xs[1])+1)),xs[Int(xs[1])+3])
-test_np(x) = np_s_lll(x) ≈ true_np_s_lll(x)
-# test_np always return true means that my_gen_logπ does return the log likelihood of np_s_model
-
 data = [1,2,3]
 gmm_model = infinite_gmm(data)
 gmm_lj = VarInfo(gmm_model, spl)
@@ -172,3 +181,77 @@ function true_gmm_lll(xs,ds)
 end
 test_gmm(x) = gmm_lll(x) ≈ true_gmm_lll(x,data)
 # test_np always return true means that my_gen_logπ does return the log likelihood of np_s_model
+
+# model where a variable is defined twice
+@model function twotimes()
+    x ~ Normal(0,1)
+    x ~ Normal(10,1)
+end
+
+spl = DynamicPPL.SampleFromPrior()
+tt_model = twotimes()
+tt_lj = VarInfo(tt_model, spl)
+tt_lll = np_gen_logπ(tt_lj, spl, tt_model)
+# gives Distributions.loglikelihood(Normal(0,1),x) + Distributions.loglikelihood(Normal(10,1),x)
+
+# model with different distributions
+
+@model function stochastic_b(K)
+    split ~ Bernoulli(0.5)
+    cluster_to_split = 0
+    u1, u2, u3 = zeros(3)
+    cluster_to_merge = 0
+    if K == 1 || split
+        # we split if there is only one mixture or we sample true
+        cluster_to_split ~ DiscreteUniform(1,K)
+        u1 ~ Beta(2,2)
+        u2 ~ Beta(2,2)
+        u3 ~ Beta(1,1)
+        cluster_to_merge ~ DiscreteUniform(0,0)
+    else
+        cluster_to_split ~ DiscreteUniform(0,0)
+        u1 ~ Beta(1,1)
+        u2 ~ Beta(1,1)
+        u3 ~ Beta(1,1)
+        cluster_to_merge ~ DiscreteUniform(1,K-1)
+    end
+end
+
+spl = DynamicPPL.SampleFromPrior()
+sb_model = stochastic_b(2)
+sb_lj = VarInfo(sb_model, spl)
+sb_lll = np_gen_logπ(sb_lj, spl, sb_model)
+
+# models not allowed
+
+# variable y cannot be of type Vector{Normal} and Vector{InverseGamma} at the same time
+# possible solution: empty the type of meta.dists
+@model function diffdist(n)
+    x = tzeros(Float64, n)
+    y = tzeros(Float64, n)
+    for i in 1:n
+        x[i] ~ Bernoulli(0.5)
+        if x[i]
+            y[i] ~ Normal(0,1)
+        else
+            y[i] ~ InverseGamma(1,1)
+        end
+    end
+end
+
+# cluster_to_merge is not defined if split is not true
+@model function stochastic_b(K)
+    split ~ Bernoulli(0.5)
+    cluster_to_split = 0
+    u1, u2, u3 = zeros(3)
+    cluster_to_merge = 0
+    if K == 1 || split
+        # we split if there is only one mixture or we sample true
+        cluster_to_split ~ DiscreteUniform(1,K)
+        u1 ~ Beta(2,2)
+        u2 ~ Beta(2,2)
+        u3 ~ Beta(1,1)
+    else
+        cluster_to_merge ~ DiscreteUniform(1,K-1)
+    end
+end
