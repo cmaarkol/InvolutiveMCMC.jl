@@ -1,5 +1,6 @@
 using Turing, Random, Plots
 using DynamicPPL, LinearAlgebra, InvolutiveMCMC, InfiniteArrays
+using Bijectors: ADBackend
 
 """
     The birth-death (split-merge) model
@@ -52,7 +53,11 @@ histogram(ks, xlabel = "Number of clusters", legend = false)
 savefig("test/images/split-merge-gmm-histogram-smc.png")
 
 """
-    Sample using iMCMC with the simple kernel that works very well in `infinite-gmm.jl`
+    Sample using iMCMC
+"""
+
+"""
+    A simple kernel that works very well in `infinite-gmm.jl`
 """
 
 # generate the log likelihood of model
@@ -104,10 +109,9 @@ function split_point(s, n)
     K = Int(s[1])+1
     return 1+K+K+K+n
 end
-smh = Involution(
+smh = ZInvolution(
     s->s[split_point(s, length(data))+1:end],
-    s->s[1:split_point(s, length(data))],
-    z_logabsdetjac = true
+    s->s[1:split_point(s, length(data))]
 )
 
 # model
@@ -287,17 +291,10 @@ function newv(state)
     return vcat(split, cluster_to_split, u1, u2, u3, cluster_to_merge, reloc)
 end
 
-sm = Involution(
+sm = ZInvolution(
     newx,
-    newv,
-    z_logabsdetjac = true
+    newv
 )
-
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(model_gmm, spl)
-model_lll = trans_dim_gen_logπ(log_joint, spl, model_gmm)
-first_sample = log_joint[spl]
 
 # split-merge model
 smmodel = iMCMCModel(sm,smkernel,model_lll,first_sample)
@@ -308,3 +305,209 @@ sm_imcmc_chain = sample(rng,smmodel,iMCMC(),1000)
 sm_imcmc_ks = [state[1]+1 for state in sm_imcmc_chain]
 histogram(sm_imcmc_ks, xlabel = "Number of clusters", legend = false)
 savefig("test/images/split-merge-gmm-histogram-imcmc-sm.png")
+
+"""
+Using BInvolution
+"""
+
+struct SplitMerge{AD} <: ADBijector{AD, 0} end
+
+(b::SplitMerge)(x) = split(x)
+(ib::Inverse{<: SplitMerge})(y) = merge(y)
+
+function split(input)
+    splitw, splitμ, splitv, u1, u2, u3 = input
+    w1 = splitw*u1
+    w2 = splitw*(1-u1)
+    μ1 = splitμ - u2*sqrt(splitv)*sqrt(w2/w1)
+    μ2 = splitμ + u2*sqrt(splitv)*sqrt(w1/w2)
+    v1 = u3*(1-u2^2)*splitv*(splitw/w1)
+    v2 = (1-u3)*(1-u2^2)*splitv*(splitw/w2)
+    return vcat(w1, w2, μ1, μ2, v1, v2)
+end
+
+function merge(input)
+    w1, w2, μ1, μ2, v1, v2 = input
+    neww = w1+w2
+    newμ = (w1*μ1 + w2*μ2)/neww
+    newv = (w1*(μ1^2+v1)+w2*(μ2^2+v2))/neww-newμ^2
+    u1 = w1/(neww)
+    u2 = (newμ-μ1)/(sqrt(newv*w2/w1))
+    u3 = (v1*w1)/((1-u2^2)*newv*neww)
+    return vcat(neww, newμ, newv, u1, u2, u3)
+end
+
+smbijector = SplitMerge{Bijectors.ADBackend()}()
+
+function unpackstate(state)
+    k = state[1]
+    K = Int(k)+1
+    μs = state[2:K+1]
+    vs = state[K+2:2*K+1]
+    ws = state[2*K+2:3*K+1]
+    zs = state[3*K+2:3*K+1+length(data)]
+    split, cluster_to_split, u1, u2, u3, cluster_to_merge = state[3*K+1+length(data)+1:end-length(data)]
+    reloc = state[end-length(data)+1:end]
+    return k, K, μs, vs, ws, zs, Bool(split), Int(cluster_to_split), u1, u2, u3, Int(cluster_to_merge), reloc
+end
+
+function sminput(state)
+    # unpack state
+    k, K, μs, vs, ws, zs, split, cluster_to_split, u1, u2, u3, cluster_to_merge, reloc = unpackstate(state)
+
+    if split
+        t = vcat(
+            ws[cluster_to_split],
+            μs[cluster_to_split],
+            vs[cluster_to_split],
+            u1, u2, u3)
+    else
+        t = vcat(
+            ws[cluster_to_merge],
+            ws[K],
+            μs[cluster_to_merge],
+            μs[K],
+            vs[cluster_to_merge],
+            vs[K])
+    end
+
+    return split, t
+end
+
+function newx(state)
+    # unpack state
+    k, K, μs, vs, ws, zs, split, cluster_to_split, u1, u2, u3, cluster_to_merge, reloc = unpackstate(state)
+
+    if split
+        # compute new weight, mean and variance
+        splitμ = μs[cluster_to_split]
+        splitv = vs[cluster_to_split]
+        splitw = ws[cluster_to_split]
+        neww1 = splitw*u1
+        neww2 = splitw*(1-u1)
+        newμ1 = splitμ - u2*sqrt(splitv)*sqrt(neww2/neww1)
+        newμ2 = splitμ + u2*sqrt(splitv)*sqrt(neww1/neww2)
+        newv1 = u3*(1-u2^2)*splitv*(splitw/neww1)
+        newv2 = (1-u3)*(1-u2^2)*splitv*(splitw/neww2)
+        # put new mixture in newx
+        k += 1
+        μs[cluster_to_split] = newμ1
+        vs[cluster_to_split] = newv1
+        ws[cluster_to_split] = neww1
+        push!(μs, newμ2)
+        push!(vs, newv2)
+        push!(ws, neww2)
+        for i in 1:length(data)
+            if zs[i] == cluster_to_split
+                if Bool(reloc[i])
+                    zs[i] = k+1
+                end
+            end
+        end
+    else
+        # merge cluster_to_merge with the last one
+        w1 = ws[cluster_to_merge]
+        w2 = ws[K]
+        μ1 = μs[cluster_to_merge]
+        μ2 = μs[K]
+        v1 = vs[cluster_to_merge]
+        v2 = vs[K]
+        neww = w1+w2
+        newμ = (w1*μ1 + w2*μ2)/neww
+        newv = (w1*(μ1^2+v1)+w2*(μ2^2+v2))/neww-newμ^2
+        # put new mixture in place of cluster_to_merge
+        k -= 1
+        ws[cluster_to_merge] = neww
+        μs[cluster_to_merge] = newμ
+        vs[cluster_to_merge] = newv
+        ws = ws[1:K-1]
+        μs = μs[1:K-1]
+        vs = vs[1:K-1]
+        # relocate z
+        for i in 1:length(data)
+            if zs[i] == K
+                zs[i] = cluster_to_merge
+            end
+        end
+    end
+    return vcat(k, μs, vs, ws, zs)
+end
+
+function newv(state)
+    # unpack state
+    k, K, μs, vs, ws, zs, split, cluster_to_split, u1, u2, u3, cluster_to_merge, reloc = unpackstate(state)
+
+    if split
+        # split -> merge should gives us the orginal x
+        split = false
+        cluster_to_merge = cluster_to_split
+        cluster_to_split = 0
+        # u1, u2, u3 = fill(0.5, 3)
+    else
+        # merge -> split should gives us the orginal x
+
+        # making sure μs[loweri] < μs[upperi]
+        loweri = cluster_to_merge
+        upperi = K
+        if μs[loweri] > μs[upperi]
+            loweri = K
+            upperi = cluster_to_merge
+        end
+
+        μ1 = μs[loweri]
+        μ2 = μs[upperi]
+        w1 = ws[loweri]
+        w2 = ws[upperi]
+        v1 = vs[loweri]
+        v2 = vs[upperi]
+        neww = w1+w2
+        newμ = (w1*μ1 + w2*μ2)/neww
+        newv = (w1*(μ1^2+v1)+w2*(μ2^2+v2))/neww-newμ^2
+
+        split = true
+        cluster_to_split = cluster_to_merge
+        u1 = w1/(neww)
+        u2 = (newμ-μ1)/(sqrt(newv*w2/w1))
+        u3 = (v1*w1)/((1-u2^2)*newv*neww)
+        cluster_to_merge = 0
+        for i in 1:length(data)
+            if zs[i] == K
+                reloc[i] = true
+            else
+                reloc[i] = false
+            end
+        end
+    end
+    return vcat(split, cluster_to_split, u1, u2, u3, cluster_to_merge, reloc)
+end
+
+bsm = BInvolution(
+    newx,
+    newv,
+    smbijector,
+    sminput
+)
+
+# split-merge model
+bsmmodel = iMCMCModel(bsm,smkernel,model_lll,first_sample)
+# generate chain
+rng = MersenneTwister(123)
+bsm_imcmc_chain = sample(rng,bsmmodel,iMCMC(),1000;discard_initial=10)
+bsm_imcmc_ks = [state[1]+1 for state in bsm_imcmc_chain]
+histogram(bsm_imcmc_ks, xlabel = "Number of clusters", legend = false)
+savefig("test/images/split-merge-gmm-histogram-imcmc-bsm.png")
+
+
+# # split -> merge
+# x1 = [1.0, -0.5708701548955284, -1.3206030300034364, 78.1934238492967, 1407.8698497409719, 0.9776180916782476, 0.02238190832175231, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+# v1 = [1.0, 1.0, 0.7308482706433362, 0.5756331160188313, 0.7995627403039852, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+
+# # merge -> split
+# x2 = [1.0, -0.5708701548955284, -1.3206030300034364, 78.1934238492967, 1407.8698497409719, 0.9776180916782476, 0.02238190832175231, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+# v2 = [0.0, 0.0, 0.7799811135421972, 0.4688006151205839, 0.16179755345600863, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+
+# function tryinv(x,v)
+#     a,b = sm(vcat(x,v))
+#     c,d = sm(vcat(a,b))
+#     return x ≈ c, v ≈ d
+# end

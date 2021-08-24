@@ -12,42 +12,69 @@ struct iMCMCModel{I,A,L,P} <: AbstractMCMC.AbstractModel
     iMCMCModel(involution, auxiliary_kernel, loglikelihood,prior) = new{typeof(involution),typeof(auxiliary_kernel),typeof(loglikelihood),typeof(prior)}(involution, auxiliary_kernel, loglikelihood, prior)
 end
 
-
 # Involution Φ(x,v) = (newx,newv)
-struct Involution{T, A, AD} <: Bijectors.ADBijector{AD, 0}
+abstract type AbstractInvolution{AD} <: Bijectors.ADBijector{AD, 0} end
+
+struct Involution{T, A, AD} <: AbstractInvolution{AD}
     "New sample." # function that maps (x,v) to newx, i.e. π1∘Φ
     newx::T
     "New auxiliary." # function that maps (x,v) to newv, i.e. π2∘Φ
     newv::A
-
-    "Zero_logabsdetjac." # flag of whether logabsdetjac is 0 (default to be false)
-    z_logabsdetjac::Bool
     "Shape of sample" # function that maps a flattened x to x
     shapex
     "Shape of auxiliary" # function that maps a flattened v to v
     shapev
-    # TODO: implement a way to check whether the function is involutive, i.e. newx(newx(x,v), newv(x,v)), newv((newx(x,v), newv(x,v))) == x, v
-    # Φ == Array ∘ (s->map(f->f(s), [newx, newv]))
-end
 
-# ADBackend() returns ForwardDiffAD, which means we use ForwardDiff.jl for AD by default
-function Involution(newx, newv; z_logabsdetjac=false, shapex=identity, shapev=identity)
-    return Involution{typeof(newx), typeof(newv), ADBackend()}(newx,newv,z_logabsdetjac,shapex,shapev)
+    Involution(newx, newv; shapex=identity, shapev=identity) = new{typeof(newx), typeof(newv), ADBackend()}(newx,newv,shapex,shapev)
 end
 
 (b::Involution)(s) = vcat(b.newx(s),b.newv(s))
 (ib::Bijectors.Inverse{<:Involution})(s) = vcat(b.newx(s),b.newv(s))
+runinvolution(i::Involution, s) = i.newx(s), i.newv(s)
+logabsdetjac(i::Involution, x, v) = Bijectors.logabsdetjac(model.involution, vcat(x, collect(Iterators.flatten(v))))
 
-# run involution
-involution(model::iMCMCModel, s) = model.involution.newx(s), model.involution.newv(s)
+struct ZInvolution{T, A, AD} <: AbstractInvolution{AD}
+    "New sample." # function that maps (x,v) to newx, i.e. π1∘Φ
+    newx::T
+    "New auxiliary." # function that maps (x,v) to newv, i.e. π2∘Φ
+    newv::A
+    "Shape of sample" # function that maps a flattened x to x
+    shapex
+    "Shape of auxiliary" # function that maps a flattened v to v
+    shapev
 
-# compute the log Jacobian determinant of the involution of the state `(x,v)`
-function Bijectors.logabsdetjac(model::iMCMCModel, x, v)
-    if model.involution.z_logabsdetjac
-        return 0.0
+    ZInvolution(newx, newv; shapex=identity, shapev=identity) = new{typeof(newx), typeof(newv), ADBackend()}(newx,newv,shapex,shapev)
+end
+
+runinvolution(i::ZInvolution, s) = i.newx(s), i.newv(s)
+logabsdetjac(i::ZInvolution, x, v) = 0.0
+
+struct BInvolution{T, A, AD} <: AbstractInvolution{AD}
+    "New sample." # function that maps (x,v) to newx, i.e. π1∘Φ
+    newx::T
+    "New auxiliary." # function that maps (x,v) to newv, i.e. π2∘Φ
+    newv::A
+    "Shape of sample" # function that maps a flattened x to x
+    shapex
+    "Shape of auxiliary" # function that maps a flattened v to v
+    shapev
+
+    "Bijector."
+    bijector::ADBijector{AD, 0}
+    "Input function." # function that maps (x,v) to (bool, t). It tells us to compute the logabsdetjac of bijector/inv(bijector) at t
+    input
+
+    BInvolution(newx, newv, bijector, input; shapex=identity, shapev=identity) = new{typeof(newx), typeof(newv), ADBackend()}(newx, newv, shapex, shapev, bijector, input)
+end
+
+runinvolution(i::BInvolution, s) = i.newx(s), i.newv(s)
+function logabsdetjac(i::BInvolution, x, v)
+    state = vcat(x,collect(Iterators.flatten(v)))
+    forward, t = i.input(state)
+    if forward
+        return Bijectors.logabsdetjac(i.bijector, t)
     else
-        flatv = collect(Iterators.flatten(v))
-        return Bijectors.logabsdetjac(model.involution, vcat(x, flatv))
+        return Bijectors.logabsdetjac(inv(i.bijector), t)
     end
 end
 

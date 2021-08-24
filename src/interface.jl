@@ -67,19 +67,20 @@ end
 Compute the proposal for the next sample using the `model`'s involution, the current sample `x` and the auxiliary sample `v`.
 """
 function proposal(model::AbstractMCMC.AbstractModel, x, v)
+    i = model.involution
     if typeof(v) <: AbstractVector
         # flatten v and then reshape newv
         flatv = collect(Iterators.flatten(v))
         flatstate = vcat(x,flatv)
         # println("flatstate = ", flatstate)
-        newflatx, newflatv = involution(model, flatstate)
+        newflatx, newflatv = runinvolution(i, flatstate)
         # println("newflatx = ", newflatx)
         # println("newflatv = ", newflatv)
         # newv = reshape_sample(newflatv, [length(elem) for elem in v])
-        newx = model.involution.shapex(newflatx)
-        newv = model.involution.shapev(newflatv)
+        newx = i.shapex(newflatx)
+        newv = i.shapev(newflatv)
     else
-        newx, newv = involution(model, vcat(x,v))
+        newx, newv = runinvolution(i, vcat(x,v))
     end
     return newx, newv
 end

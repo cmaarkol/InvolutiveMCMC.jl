@@ -33,35 +33,35 @@ function AbstractMCMC.step(
     state::iMCMCState;
     kwargs...,
 )
-    println("----STEP START----")
+    # println("----STEP START----")
     # previous sample and its log likelihood
     xsample = state.sample
     xloglikelihood = state.loglikelihood
-    println("xsample = ", xsample)
-    println("xloglikelihood = ", xloglikelihood)
+    # println("xsample = ", xsample)
+    # println("xloglikelihood = ", xloglikelihood)
 
     # sample from the auxiliary kernel and compute its log likelihood
     vsample = aux_kernel_sampler(rng, model, xsample)
     vloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), xsample, vsample)
-    println("vsample = ", vsample)
-    println("vloglikelihood = ", vloglikelihood)
+    # println("vsample = ", vsample)
+    # println("vloglikelihood = ", vloglikelihood)
 
     # compute the new sample and auxiliary using involution
     newxsample, newvsample = proposal(model, xsample, vsample)
-    println("newxsample = ", newxsample)
-    println("newvsample = ", newvsample)
+    # println("newxsample = ", newxsample)
+    # println("newvsample = ", newvsample)
 
     # compute the log likelihood of the newxsample and newvsample
     newxloglikelihood = Distributions.loglikelihood(model, newxsample)
-    println("newxloglikelihood = ", newxloglikelihood)
+    # println("newxloglikelihood = ", newxloglikelihood)
     newvloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), newxsample, newvsample)
-    println("newvloglikelihood = ", newvloglikelihood)
+    # println("newvloglikelihood = ", newvloglikelihood)
 
     # compute the log Hastings acceptance ratio
-    involutionlogabsdetjac = Bijectors.logabsdetjac(model, xsample, vsample)
+    involutionlogabsdetjac = logabsdetjac(model.involution, xsample, vsample)
     # println("involutionlogabsdetjac = ", involutionlogabsdetjac)
     logα = newxloglikelihood + newvloglikelihood - xloglikelihood - vloglikelihood + involutionlogabsdetjac
-    println("log acceptance ratio = ", logα)
+    # println("log acceptance ratio = ", logα)
 
     nextsample, nextstate = if -Random.randexp(rng) < logα
         newxsample, iMCMCState(newxsample, newxloglikelihood)
