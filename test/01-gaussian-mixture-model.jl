@@ -1,7 +1,10 @@
+using InvolutiveMCMC
 using Distributions, StatsPlots, Random
 using Turing, MCMCChains
 using DynamicPPL, AbstractMCMC
-using InvolutiveMCMC
+
+filename = "01-gaussian-mixture-model"
+imagepath = "test/images/"
 
 # Set a random seed.
 Random.seed!(3)
@@ -50,52 +53,33 @@ Turing.setprogress!(false)
     end
     return k
 end
-
 gmm_model = GaussianMixtureModel(data);
 
+# Sampler
+inf = "gibbs&hmc"
+rng1 = MersenneTwister(1)
 gmm_sampler = Gibbs(PG(100, :k), HMC(0.05, 10, :μ1, :μ2))
-tchain = sample(gmm_model, gmm_sampler, 100);
-
+tchain = sample(rng1, gmm_model, gmm_sampler, 100);
 ids = findall(map(name -> occursin("μ", string(name)), names(tchain)));
-p=plot(tchain[:, ids, :], legend=true, labels = ["Mu 1" "Mu 2"], colordim=:parameter)
-savefig("test/images/01-gaussian-mixture-model-gibbs.png")
+plot(tchain[:, ids, :], legend=true, labels = ["Mu 1" "Mu 2"], colordim=:parameter)
+savefig(join([imagepath, filename, "-", inf, ".png"]))
 
 # Using iMCMC as the sampler
-
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(gmm_model, spl) # If you want the log joint
-model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, gmm_model)
-
-# define the iMCMC model
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-@model function simplekernel(x)
-    μ1 = x[1]
-    μ2 = x[2]
-    N = length(data)
-
-    newμ1 ~ Normal(μ1, 1)
-    newμ2 ~ Normal(μ2, 1)
-    newk = Vector{Int}(undef, N)
-    for i in 1:N
-        newk[i] ~ Categorical([0.5, 0.5])
-    end
-
-    return vcat(newμ1, newμ2, newk)
-end
-modelkernel = ModelAuxKernel(simplekernel)
-# kernel = ProductAuxKernel(vcat([
-#   # proposal distribution for μ1
-#   AuxKernel(μ1 -> Normal(μ1,1)),
-#   # proposal distribution for μ2
-#   AuxKernel(μ2 -> Normal(μ2,1))],
-#   # proposal distribution for k
-#   fill(AuxKernel(k -> Categorical([0.5,0.5])),size(data)[2])
-# ))
-model = iMCMCModel(mh,modelkernel,model_loglikelihood,fill(1,2+size(data)[2]))
+inf = "imcmc"
+ADMH = ADInvolution(
+    (x, v)->(v, x),
+    s->(s[1:Int(end/2)], s[Int(end/2)+1:end])
+)
+kernel = PointwiseAuxKernel(
+    (n, t) -> (n == 1 || n == 2) ?
+    Normal(t[n], 10) :
+    Categorical([0.5, 0.5])
+)
+model = iMCMCModel(ADMH, kernel, gmm_model)
 
 # generate chain
-rng = MersenneTwister(1)
-chn = Chains(sample(rng,model,iMCMC(),100;discard_initial=10))
-plot(chn[:,1:2,:])
-savefig("test/images/01-gaussian-mixture-model-imcmc.png")
+rng2 = MersenneTwister(2)
+imcmcsamples = sample(rng2, model, iMCMC(), 10000)
+imcmcchn = Chains(convert(Matrix{Float64}, reduce(hcat, imcmcsamples)')[:,1:2,:], [:μ1, :μ2])
+plot(imcmcchn)
+savefig(join([imagepath, filename, "-", inf, ".png"]))

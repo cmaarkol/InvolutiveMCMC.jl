@@ -1,5 +1,9 @@
 # Import libraries.
-using Turing, Flux, Plots, Random, ReverseDiff
+using InvolutiveMCMC
+using Turing, Flux, Plots, Random, ReverseDiff, DynamicPPL
+
+filename = "03-bayesian-neural-network"
+imagepath = "test/images/"
 
 # Hide sampling progress.
 Turing.setprogress!(false);
@@ -84,60 +88,50 @@ end;
 # model
 bnn_model = bayes_nn(hcat(xs...), ts)
 
-# # Perform inference.
-# N = 5000
-# ch = sample(bnn_model, HMC(0.05, 4), N);
+# Perform inference.
+inf = "hmc"
+N = 5000
+rng1 = MersenneTwister(1)
+ch = sample(rng1, bnn_model, HMC(0.05, 4), N);
 
-# # Extract all weight and bias parameters.
-# theta = MCMCChains.group(ch, :nn_params).value;
-
-# # Plot the data we have.
-# plot_data()
-
-# # Find the index that provided the highest log posterior in the chain.
-# _, i = findmax(ch[:lp])
-
-# # Extract the max row value from i.
-# i = i.I[1]
-
-# # Plot the posterior distribution with a contour plot.
-# x_range = collect(range(-6,stop=6,length=25))
-# y_range = collect(range(-6,stop=6,length=25))
-# Z = [nn_forward([x, y], theta[i, :])[1] for x=x_range, y=y_range]
-# contour!(x_range, y_range, Z)
-# savefig("test/images/03-bayesian-neural-network-hmc.png")
-
-# Using iMCMC as the sampler
-using DynamicPPL, LinearAlgebra, InvolutiveMCMC
-
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(bnn_model, spl) # If you want the log joint
-model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, bnn_model)
-
-# define the iMCMC model
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-# proposal distribution for parameters
-kernel = AuxKernel(x->MvNormal(x,I))
-model = iMCMCModel(mh,kernel,model_loglikelihood,rand(20))
-
-# generate chain
-rng = MersenneTwister(1)
-chn = Array(Chains(sample(rng,model,iMCMC(),5000;discard_initial=10)))
-A = [chn[i,:] for i in 1:size(chn,1)]
+# Extract all weight and bias parameters.
+theta = MCMCChains.group(ch, :nn_params).value;
 
 # Plot the data we have.
 plot_data()
 
 # Find the index that provided the highest log posterior in the chain.
-_, i = findmax(map(model_loglikelihood, A))
+_, i = findmax(ch[:lp])
 
 # Extract the max row value from i.
-# i = i.I[1]
+i = i.I[1]
 
 # Plot the posterior distribution with a contour plot.
 x_range = collect(range(-6,stop=6,length=25))
 y_range = collect(range(-6,stop=6,length=25))
-Z = [nn_forward([x, y], chn[i, :])[1] for x=x_range, y=y_range]
+Z = [nn_forward([x, y], theta[i, :])[1] for x=x_range, y=y_range]
 contour!(x_range, y_range, Z)
-savefig("test/images/03-bayesian-neural-network-imcmc.png")
+savefig(join([imagepath, filename, "-", inf, ".png"]))
+
+# define the iMCMC model
+inf = "imcmc"
+rng2 = MersenneTwister(2)
+ADMH = ADInvolution(
+    (x, v)->(v, x),
+    s->(s[1:Int(end/2)], s[Int(end/2)+1:end])
+)
+kernel = AuxKernel(t -> map(x -> Normal(x,1), t))
+model = iMCMCModel(ADMH, kernel, bnn_model)
+
+# generate chain
+imcmcsamples = sample(rng2, model, iMCMC(), 5000)
+imcmcchn = convert(Matrix{Float64}, reduce(hcat, imcmcsamples)')
+
+# Find the index that provided the highest log posterior in the chain.
+logp = InvolutiveMCMC.np_gen_logπ(DynamicPPL.SampleFromPrior(), bnn_model)
+_, imcmcmaxindex = findmax(map(t -> logp(t)[3], imcmcsamples))
+
+# Plot the posterior distribution with a contour plot.
+imcmcZ = [nn_forward([x, y], imcmcchn[imcmcmaxindex, :])[1] for x=x_range, y=y_range]
+contour!(x_range, y_range, imcmcZ)
+savefig(join([imagepath, filename, "-", inf, ".png"]))

@@ -1,5 +1,9 @@
 # Load libraries.
+using InvolutiveMCMC
 using Turing, StatsPlots, Random
+
+filename = "04-hidden-markov-model"
+imagepath = "test/images/"
 
 # Turn off progress monitor.
 Turing.setprogress!(false);
@@ -48,6 +52,7 @@ end;
 
 hmm_model = BayesHmm(y, 3)
 
+inf = "hmc&gibbs"
 g = Gibbs(HMC(0.01, 50, :m, :T), PG(120, :s))
 chn = sample(hmm_model, g, 1000);
 
@@ -75,35 +80,38 @@ function make_animation(m_set, s_set, Ns)
         plot!(emissions, color = :blue, label = "Sample $i")
     end every 3
 end
-gif(make_animation(m_set, s_set, Ns), "test/images/04-hidden-markov-model-hmc.gif", fps = 15)
+gif(make_animation(m_set, s_set, Ns), join([imagepath, filename, "-", inf, ".gif"]), fps = 15)
 
 # Using iMCMC as the sampler
-using DynamicPPL, LinearAlgebra, InvolutiveMCMC
-
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(hmm_model, spl) # If you want the log joint
-model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, hmm_model)
-first_sample = log_joint[spl]
-
-# define the iMCMC model
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-# proposal distribution for parameters
-kernel = ProductAuxKernel(
-    vcat(
-        fill(AuxKernel(T_i->Dirichlet(ones(3)/3)), 3),
-        fill(AuxKernel(m_i->Normal(m_i,1)),3),
-        fill(AuxKernel(s_i->Categorical(ones(3)/3)),30)
-    ),
-    vcat([3,3,3],ones(Int,33))
+inf = "imcmc"
+ADMH = ADInvolution(
+    (x, v)->(v, x),
+    s->(s[1:Int(end/2)], s[Int(end/2)+1:end])
 )
-model = iMCMCModel(mh,kernel,model_loglikelihood,first_sample)
+@model function turingkernel(t)
+    s = tzeros(Int, N)
+    m = Vector(undef, 3)
+    T = Vector{Vector}(undef, 3)
+
+    for i = 1:3
+        T[i] ~ Dirichlet(ones(3)/3)
+        m[i] ~ Normal(t[i+9], 1)
+    end
+
+    s[1] ~ Categorical(3)
+    for i = 2:N
+        s[i] ~ Categorical(vec(T[s[i-1]]))
+    end
+end
+kernel = ModelAuxKernel(turingkernel)
+model = iMCMCModel(ADMH, kernel, hmm_model)
 
 # generate chain
-rng = MersenneTwister(1)
-imcmc_chn = Array(Chains(sample(rng,model,iMCMC(),1000;discard_initial=10)))
+rng2 = MersenneTwister(2)
+imcmcsamples = sample(rng2, model, iMCMC(), 1000)
 
-imcmc_m_set = [imcmc_chn[i,:][10:12] for i in 1:size(imcmc_chn,1)]
-imcmc_s_set = [Int.(imcmc_chn[i,:][13:end]) for i in 1:size(imcmc_chn,1)]
+imcmcmat = convert(Matrix{Float64}, reduce(hcat, imcmcsamples)')
+imcmc_m_set = [imcmcmat[i,:][10:12] for i in 1:size(imcmcmat,1)]
+imcmc_s_set = [Int.(imcmcmat[i,:][13:end]) for i in 1:size(imcmcmat,1)]
 
-gif(make_animation(imcmc_m_set, imcmc_s_set, 1:size(imcmc_chn,1)), "test/images/04-hidden-markov-model-imcmc.gif", fps = 15)
+gif(make_animation(imcmc_m_set, imcmc_s_set, 1:size(imcmcmat,1)), join([imagepath, filename, "-", inf, ".gif"]), fps = 15)

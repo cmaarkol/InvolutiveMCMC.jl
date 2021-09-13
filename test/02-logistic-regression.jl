@@ -20,6 +20,9 @@ Random.seed!(0);
 # Turn off progress monitor.
 Turing.setprogress!(false)
 
+filename = "02-logistic-regression"
+imagepath = "test/images/"
+
 # Import the "Default" dataset.
 data = RDatasets.dataset("ISLR", "Default");
 
@@ -55,7 +58,6 @@ test_label = testset[:, target];
 # Bayesian logistic regression (LR)
 @model logistic_regression(x, y, n, σ) = begin
     intercept ~ Normal(0, σ)
-
     student ~ Normal(0, σ)
     balance ~ Normal(0, σ)
     income  ~ Normal(0, σ)
@@ -73,13 +75,11 @@ n, _ = size(train)
 model_lr = logistic_regression(train, train_label, n, 1)
 
 # Sample using HMC.
-chain = mapreduce(c -> sample(model_lr, HMC(0.05, 10), 1500),
-    chainscat,
-    1:3
-)
-
+inf = "hmc"
+rng1 = MersenneTwister(1)
+chain = mapreduce(c -> sample(rng1, model_lr, HMC(0.05, 10), 1500), chainscat, 1:3)
 plot(chain)
-savefig("test/images/02-logistic-regression-hmc.png")
+savefig(join([imagepath, filename, "-", inf, ".png"]))
 
 function prediction(x::Matrix, chain, threshold)
     # Pull the means from each parameter's sampled values in the chain.
@@ -130,25 +130,22 @@ println("Not defaults: $not_defaults
     Percentage non-defaults correct $(predicted_not_defaults/not_defaults)")
 
 # Using iMCMC as the sampler
-using DynamicPPL, LinearAlgebra, InvolutiveMCMC
-
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(model_lr, spl) # If you want the log joint
-model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, model_lr)
-first_sample = log_joint[spl]
+using InvolutiveMCMC
 
 # define the iMCMC model
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-# proposal distribution for parameters
-kernel = ProductAuxKernel(
-    fill(AuxKernel(m_i->Normal(m_i,1)),4),
-    ones(Int,4)
+ADMH = ADInvolution(
+    (x, v)->(v, x),
+    s->(s[1:Int(end/2)], s[Int(end/2)+1:end])
 )
-model = iMCMCModel(mh,kernel,model_loglikelihood,first_sample)
+kernel = PointwiseAuxKernel(
+    (n, t) -> Normal(t[n], 1)
+)
+model = iMCMCModel(ADMH, kernel, model_lr)
 
 # generate chain
-rng = MersenneTwister(1)
-imcmc_chn = Chains(sample(rng,model,iMCMC(),3000;discard_initial=10))
-plot(imcmc_chn)
+rng2 = MersenneTwister(2)
+imcmcsamples = sample(rng2, model, iMCMC(), 1000)
+
+imcmcchn = Chains(convert(Matrix{Float64}, reduce(hcat, imcmcsamples)'), [:intercept, :student, :balance, :income ])
+plot(imcmcchn)
 savefig("test/images/02-logistic-regression-imcmc.png")

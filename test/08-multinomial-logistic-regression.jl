@@ -1,3 +1,4 @@
+using InvolutiveMCMC
 # Load Turing.
 using Turing
 
@@ -19,6 +20,9 @@ Random.seed!(0)
 
 # Hide the progress prompt while sampling.
 Turing.setprogress!(false);
+
+filename = "08-multinomial-logistic-regression"
+imagepath = "test/images/"
 
 # Import the "iris" dataset.
 data = RDatasets.dataset("datasets", "iris");
@@ -73,9 +77,11 @@ end;
 
 model_mlr = logistic_regression(train_features, train_target, 1)
 
-chain = sample(model_mlr, HMC(0.05, 10), MCMCThreads(), 1500, 3)
+inf = "hmc"
+rng1 = MersenneTwister(1)
+chain = sample(rng1, model_mlr, HMC(0.05, 10), MCMCThreads(), 1500, 3)
 plot(chain)
-savefig("test/images/08-multinomial-logistic-regression-hmc.png")
+savefig(join([imagepath, filename, "-", inf, ".png"]))
 
 function prediction(x::Matrix, chain)
     # Pull the means from each parameter's sampled values in the chain.
@@ -112,60 +118,27 @@ for s in 1:3
 end
 
 # Using iMCMC as the sampler
-using DynamicPPL, LinearAlgebra, InvolutiveMCMC
 
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(model_mlr, spl) # If you want the log joint
-model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, model_mlr)
-first_sample = log_joint[spl]
-
-# define the iMCMC model
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-# proposal distribution for parameters
-kernel = ProductAuxKernel([
-    AuxKernel(intercept_versicolor -> Normal(intercept_versicolor, 1)),
-    AuxKernel(intercept_virginica -> Normal(intercept_virginica, 1)),
-    AuxKernel(coefficients_versicolor -> MvNormal(coefficients_versicolor, 1)),
-    AuxKernel(coefficients_virginica -> MvNormal(coefficients_virginica, 1))
-    ],
-    [1,1,4,4]
+inf = "imcmc"
+ADMH = ADInvolution(
+    (x, v)->(v, x),
+    s->(s[1:Int(end/2)], s[Int(end/2)+1:end])
 )
-model = iMCMCModel(mh,kernel,model_loglikelihood,first_sample)
+kernel = PointwiseAuxKernel((n, t) -> Normal(t[n], 1))
+model = iMCMCModel(ADMH, kernel, model_mlr)
 
 # generate chain
-rng = MersenneTwister(1)
-imcmc_chn = Chains(sample(rng,model,iMCMC(),3000;discard_initial=10))
-plot(imcmc_chn)
-savefig("test/images/08-multinomial-logistic-regression-imcmc.png")
-
-function imcmc_prediction(x::Matrix, chain)
-    # Pull the means from each parameter's sampled values in the chain.
-    intercept_versicolor = mean(chain, :param_1)
-    intercept_virginica = mean(chain, :param_2)
-    coefficients_versicolor = [
-        mean(chain, :param_3),
-        mean(chain, :param_4),
-        mean(chain, :param_5),
-        mean(chain, :param_6)
-    ]
-    coefficients_virginica = [
-        mean(chain, :param_7),
-        mean(chain, :param_8),
-        mean(chain, :param_9),
-        mean(chain, :param_10)
-    ]
-
-    # Compute the index of the species with the highest probability for each observation.
-    values_versicolor = intercept_versicolor .+ x * coefficients_versicolor
-    values_virginica = intercept_virginica .+ x * coefficients_virginica
-    species_indices = [argmax((0, x, y)) for (x, y) in zip(values_versicolor, values_virginica)]
-
-    return species_indices
-end;
+rng2 = MersenneTwister(2)
+imcmcsamples = sample(rng2, model, iMCMC(), 3000)
+imcmcchn = Chains(convert(Matrix{Float64}, reduce(hcat, imcmcsamples)'),
+    vcat([:intercept_versicolor, :intercept_virginica],
+    map(i -> join(["coefficients_versicolor[", i, "]"]), 1:4),
+    map(i -> join(["coefficients_virginica[", i, "]"]), 1:4)))
+plot(imcmcchn)
+savefig(join([imagepath, filename, "-", inf, ".png"]))
 
 # Make the predictions.
-imcmc_predictions = imcmc_prediction(test_features, imcmc_chn)
+imcmc_predictions = prediction(test_features, imcmcchn)
 
 # Calculate accuracy for our test set.
 mean(imcmc_predictions .== testset[!, :Species_index])

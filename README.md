@@ -9,6 +9,8 @@ This package implements involutive MCMC in the Julia language, as described in
 
 Involutive MCMC "provides a unified view of many known MCMC algorithms, which facilitates the derivation of powerful extensions." (Neklyudov et al., 2020)
 
+## Getting Started
+
 ### Metropolis-Hastings (MH)
 
 We illustrate how to sample from simple model given in [Turing's getting started webpage](https://turing.ml/dev/docs/using-turing/get-started) using involutive MCMC.
@@ -230,6 +232,13 @@ CompositeAuxKernel(kernels)
 
 compositek = CompositeAuxKernel([dis1norminfk,pointwisek])
 ```
+
+## Examples
+
+Examples can be found in the file `test`.
+- `simple.jl` illustrates some simple models.
+- `gdemo.jl` shows how the Normal demo model can be sampled.
+- `01-gaussian-mixture-model`, etc are examples from the [Turing Tutorials](https://turing.ml/dev/tutorials/).
 
 ## Bibliography
 

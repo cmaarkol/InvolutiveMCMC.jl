@@ -1,3 +1,4 @@
+using InvolutiveMCMC
 #Import Turing, Distributions and DataFrames
 using Turing, Distributions, DataFrames, Distributed
 
@@ -10,6 +11,9 @@ Random.seed!(12);
 
 # Turn off progress monitor.
 Turing.setprogress!(false)
+
+filename = "07-poisson-regression"
+imagepath = "test/images/"
 
 theta_noalcohol_meds = 1    # no alcohol, took medicine
 theta_alcohol_meds = 3      # alcohol, took medicine
@@ -64,10 +68,12 @@ end;
 n, _ = size(data)
 
 # Sample using NUTS.
+inf = "nuts"
 model_pr = poisson_regression(data, data_labels, n, 10)
 num_chains = 4
+rng1 = MersenneTwister(1)
 chain = mapreduce(
-    c -> sample(model_pr, NUTS(200, 0.65), 2500, discard_adapt=false),
+    c -> sample(rng1, model_pr, NUTS(200, 0.65), 2500, discard_adapt=false),
     chainscat, 
     1:num_chains);
 
@@ -82,6 +88,7 @@ b1_exp = exp(mean(c1[:b1]))
 b2_exp = exp(mean(c1[:b2]))
 b3_exp = exp(mean(c1[:b3]))
 
+println("---NUTS results---")
 print("The exponent of the meaned values of the weights (or coefficients are): \n")
 print("b0: ", b0_exp, " \n", "b1: ", b1_exp, " \n", "b2: ", b2_exp, " \n", "b3: ", b3_exp, " \n")
 print("The posterior distributions obtained after sampling can be visualised as :\n")
@@ -90,28 +97,30 @@ plot(chain)
 # Removing the first 200 values of the chains.
 chains_new = chain[201:2500,:,:]
 plot(chains_new)
-savefig("test/images/07-poisson-regresion-nuts.png")
+savefig(join([imagepath, filename, "-", inf, ".png"]))
 
 # Using iMCMC as the sampler
-using DynamicPPL, LinearAlgebra, InvolutiveMCMC
-
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(model_pr, spl) # If you want the log joint
-model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, model_pr)
-first_sample = log_joint[spl]
-
-# define the iMCMC model
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-# proposal distribution for parameters
-kernel = ProductAuxKernel(fill(AuxKernel(b_i->Normal(b_i,1)),4),ones(Int,4))
-model = iMCMCModel(mh,kernel,model_loglikelihood,first_sample)
+inf = "imcmc"
+ADMH = ADInvolution(
+    (x, v)->(v, x),
+    s->(s[1:Int(end/2)], s[Int(end/2)+1:end])
+)
+kernel = PointwiseAuxKernel((n, t) -> Normal(t[n], 1))
+model = iMCMCModel(ADMH, kernel, model_pr)
 
 # generate chain
-rng = MersenneTwister(1)
-imcmc_chains = mapreduce(
-    c -> Chains(sample(rng,model,iMCMC(),300000;discard_initial=200)),
-    chainscat,
-    1:num_chains);
-plot(imcmc_chains)
-savefig("test/images/07-poisson-regression-imcmc.png")
+rng2 = MersenneTwister(2)
+imcmcsamples = sample(rng2, model, iMCMC(), 10000;discard_initial=7000)
+imcmcchn = Chains(convert(Matrix{Float64}, reduce(hcat, imcmcsamples)'), [:b0, :b1, :b2, :b3])
+
+# Calculating the exponentiated means
+imcmc_b0_exp = exp(mean(imcmcchn[:b0]))
+imcmc_b1_exp = exp(mean(imcmcchn[:b1]))
+imcmc_b2_exp = exp(mean(imcmcchn[:b2]))
+imcmc_b3_exp = exp(mean(imcmcchn[:b3]))
+
+println("---iMCMC results---")
+print("The exponent of the meaned values of the weights (or coefficients are): \n")
+print("b0: ", imcmc_b0_exp, " \n", "b1: ", imcmc_b1_exp, " \n", "b2: ", imcmc_b2_exp, " \n", "b3: ", imcmc_b3_exp, " \n")
+print("The posterior distributions obtained after sampling can be visualised as :\n")
+savefig(join([imagepath, filename, "-", inf, ".png"]))

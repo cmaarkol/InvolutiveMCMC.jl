@@ -17,16 +17,16 @@ using Distances
 using Random
 Random.seed!(0)
 
+using InvolutiveMCMC
+
+filename = "05-linear-regression"
+imagepath = "test/images/"
+
 # Hide the progress prompt while sampling.
 Turing.setprogress!(false);
 
 # Import the "Default" dataset.
 data = RDatasets.dataset("datasets", "mtcars");
-
-# Show the first six rows of the dataset.
-first(data, 6)
-
-size(data)
 
 # Remove the model column.
 select!(data, Not(:Model))
@@ -68,34 +68,64 @@ end
 
 lr_model = linear_regression(train, train_target)
 
-chain = sample(lr_model, NUTS(0.65), 3_000);
+inf = "nuts"
+rng1 = MersenneTwister(1)
+chain = sample(rng1, lr_model, NUTS(0.65), 3_000);
 plot(chain)
-savefig("test/images/05-linear-regression-nuts.png")
+savefig(join([imagepath, filename, "-", inf, ".png"]))
 
 # Using iMCMC as the sampler
-using DynamicPPL, LinearAlgebra, InvolutiveMCMC
-
-# generate the log likelihood of model
-spl = DynamicPPL.SampleFromPrior()
-log_joint = VarInfo(lr_model, spl) # If you want the log joint
-model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, lr_model)
-first_sample = log_joint[spl]
-
-# define the iMCMC model
-mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-# proposal distribution for parameters
-kernel = ProductAuxKernel(
-    vcat(
-        [AuxKernel(σ₂ -> truncated(Normal(σ₂,1),0,Inf)),
-        AuxKernel(intercept -> Normal(intercept, 1))],
-        fill(AuxKernel(m_i->Normal(m_i,1)),size(train,2))
-    ),
-    ones(Int,12)
+inf = "imcmc"
+ADMH = ADInvolution(
+    (x, v)->(v, x),
+    s->(s[1:Int(end/2)], s[Int(end/2)+1:end])
 )
-model = iMCMCModel(mh,kernel,model_loglikelihood,first_sample)
+kernel = PointwiseAuxKernel(
+    (n, t) -> n == 1 ? truncated(Normal(t[n],1),0,Inf) : Normal(t[n], 1))
+model = iMCMCModel(ADMH, kernel, lr_model)
 
 # generate chain
-rng = MersenneTwister(1)
-imcmc_chn = Chains(sample(rng,model,iMCMC(),3000;discard_initial=10))
-plot(imcmc_chn)
-savefig("test/images/05-linear-regression-imcmc.png")
+rng2 = MersenneTwister(2)
+imcmcsamples = sample(rng2, model, iMCMC(), 3000)
+imcmcchn = Chains(convert(Matrix{Float64}, reduce(hcat, imcmcsamples)'), vcat([:σ₂, :intercept], map(i -> join(["coefficients[", i, "]"]), 1:10)))
+plot(imcmcchn)
+savefig(join([imagepath, filename, "-", inf, ".png"]))
+
+# Make a prediction given an input vector.
+function prediction(chain, x)
+    p = get_params(chain[200:end, :, :])
+    targets = p.intercept' .+ x * reduce(hcat, p.coefficients)'
+    return vec(mean(targets; dims = 2))
+end
+
+# Calculate the predictions for the training and testing sets
+# and unstandardize them.
+p = prediction(chain, train)
+train_prediction_bayes = μtarget .+ σtarget .* p
+p = prediction(chain, test)
+test_prediction_bayes_nuts = μtarget .+ σtarget .* p
+p = prediction(imcmcchn, test)
+test_prediction_bayes_imcmc = μtarget .+ σtarget .* p
+
+# Show the predictions on the test data set.
+DataFrame(
+    MPG = testset[!, target],
+    NUTSBayes = test_prediction_bayes_nuts,
+    iMCMCBayes = test_prediction_bayes_imcmc,
+)
+
+println(
+    "Training set:",
+    "\n\tNUTS Bayes loss: ",
+    msd(train_prediction_bayes, trainset[!, target]),
+    "\n\tiMCMC Bayes loss: ",
+    msd(train_prediction_bayes, trainset[!, target]),
+)
+
+println(
+    "Test set:",
+    "\n\tNUTS Bayes loss: ",
+    msd(test_prediction_bayes_nuts, testset[!, target]),
+    "\n\tiMCMC Bayes loss: ",
+    msd(test_prediction_bayes_imcmc, testset[!, target]),
+)
