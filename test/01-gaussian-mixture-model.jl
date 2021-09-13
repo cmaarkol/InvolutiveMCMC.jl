@@ -69,15 +69,30 @@ model_loglikelihood = Turing.Inference.gen_logπ(log_joint, spl, gmm_model)
 
 # define the iMCMC model
 mh = Involution(s->s[Int(end/2)+1:end],s->s[1:Int(end/2)])
-kernel = ProductAuxKernel(vcat([
-  # proposal distribution for μ1
-  AuxKernel(μ1 -> Normal(μ1,1)),
-  # proposal distribution for μ2
-  AuxKernel(μ2 -> Normal(μ2,1))],
-  # proposal distribution for k
-  fill(AuxKernel(k -> Categorical([0.5,0.5])),size(data)[2])
-))
-model = iMCMCModel(mh,kernel,model_loglikelihood,fill(1,2+size(data)[2]))
+@model function simplekernel(x)
+    μ1 = x[1]
+    μ2 = x[2]
+    N = length(data)
+
+    newμ1 ~ Normal(μ1, 1)
+    newμ2 ~ Normal(μ2, 1)
+    newk = Vector{Int}(undef, N)
+    for i in 1:N
+        newk[i] ~ Categorical([0.5, 0.5])
+    end
+
+    return vcat(newμ1, newμ2, newk)
+end
+modelkernel = ModelAuxKernel(simplekernel)
+# kernel = ProductAuxKernel(vcat([
+#   # proposal distribution for μ1
+#   AuxKernel(μ1 -> Normal(μ1,1)),
+#   # proposal distribution for μ2
+#   AuxKernel(μ2 -> Normal(μ2,1))],
+#   # proposal distribution for k
+#   fill(AuxKernel(k -> Categorical([0.5,0.5])),size(data)[2])
+# ))
+model = iMCMCModel(mh,modelkernel,model_loglikelihood,fill(1,2+size(data)[2]))
 
 # generate chain
 rng = MersenneTwister(1)

@@ -16,13 +16,8 @@ function AbstractMCMC.step(
     ::iMCMC;
     kwargs...
 )
-    # initial sample from the model
-    f = initial_sample(rng, model)
-
-    # compute log-likelihood of the initial sample
-    loglikelihood = Distributions.loglikelihood(model, f)
-
-    return f, iMCMCState(f, loglikelihood)
+    xsample, logp = initial_sample(rng, model)
+    return xsample, iMCMCState(xsample, logp)
 end
 
 # subsequent steps of the involutive MCMC
@@ -33,40 +28,43 @@ function AbstractMCMC.step(
     state::iMCMCState;
     kwargs...,
 )
+    inv = getinvolution(model)
+    kernel = getkernel(model)
+
     # println("----STEP START----")
     # previous sample and its log likelihood
     xsample = state.sample
-    xloglikelihood = state.loglikelihood
+    xlogp = state.loglikelihood
     # println("xsample = ", xsample)
-    # println("xloglikelihood = ", xloglikelihood)
+    # println("xlogp = ", xlogp)
 
     # sample from the auxiliary kernel and compute its log likelihood
-    vsample = aux_kernel_sampler(rng, model, xsample)
-    vloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), xsample, vsample)
+    vsample = Random.randn(rng, xsample, kernel)
+    vlogp = Distributions.loglikelihood(kernel, xsample, vsample)
     # println("vsample = ", vsample)
-    # println("vloglikelihood = ", vloglikelihood)
+    # println("vlogp = ", vlogp)
 
     # compute the new sample and auxiliary using involution
-    newxsample, newvsample = proposal(model, xsample, vsample)
+    newxsample, newvsample = proposal(inv, xsample, vsample)
     # println("newxsample = ", newxsample)
     # println("newvsample = ", newvsample)
 
     # compute the log likelihood of the newxsample and newvsample
-    newxloglikelihood = Distributions.loglikelihood(model, newxsample)
-    # println("newxloglikelihood = ", newxloglikelihood)
-    newvloglikelihood = Distributions.loglikelihood(auxiliary_kernel(model), newxsample, newvsample)
-    # println("newvloglikelihood = ", newvloglikelihood)
+    _, _, newxlogp = logpdf(model, newxsample)
+    # println("newxlogp = ", newxlogp)
+    newvlogp = Distributions.loglikelihood(kernel, newxsample, newvsample)
+    # println("newvlogp = ", newvlogp)
 
     # compute the log Hastings acceptance ratio
-    involutionlogabsdetjac = logabsdetjac(model.involution, xsample, vsample)
-    # println("involutionlogabsdetjac = ", involutionlogabsdetjac)
-    logα = newxloglikelihood + newvloglikelihood - xloglikelihood - vloglikelihood + involutionlogabsdetjac
+    invlogabsdetjac = logabsdetjacinv(inv, xsample, vsample)
+    # println("invlogabsdetjac = ", invlogabsdetjac)
+    logα = newxlogp + newvlogp - xlogp - vlogp + invlogabsdetjac
     # println("log acceptance ratio = ", logα)
 
     nextsample, nextstate = if -Random.randexp(rng) < logα
-        newxsample, iMCMCState(newxsample, newxloglikelihood)
+        newxsample, iMCMCState(newxsample, newxlogp)
     else
-        xsample, iMCMCState(xsample, xloglikelihood)
+        xsample, iMCMCState(xsample, xlogp)
     end
     # println(nextsample)
     return nextsample, nextstate

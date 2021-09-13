@@ -8,7 +8,7 @@ using Turing, DynamicPPL
 using InfiniteArrays: InfiniteArrays
 using Random: Random
 
-export iMCMCModel, iMCMC, Involution, ZInvolution, BInvolution, AuxKernel, CompositeAuxKernel, ProductAuxKernel, ModelAuxKernel, trans_dim_gen_logπ
+export iMCMCModel, iMCMC, Involution, ADInvolution, CompositeInvolution, Bijection, AuxKernel, ModelAuxKernel, PointwiseAuxKernel, CompositeAuxKernel
 
 # reexports
 using AbstractMCMC: sample

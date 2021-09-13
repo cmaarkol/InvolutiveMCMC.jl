@@ -1,247 +1,275 @@
-# internal model structure consisting of involution, auxiliary kernel, log-likelihood function and the prior.
-struct iMCMCModel{I,A,L,P} <: AbstractMCMC.AbstractModel
+"""
+    `iMCMCModel` is the internal model structure.
+"""
+struct iMCMCModel{I,A} <: AbstractMCMC.AbstractModel
     "Involution."
     involution::I
     "Auxiliary kernel."
     auxiliary_kernel::A
     "Log likelihood function."
-    loglikelihood::L
-    "Prior."
-    prior::P
+    loglikelihood
 
-    iMCMCModel(involution, auxiliary_kernel, loglikelihood,prior) = new{typeof(involution),typeof(auxiliary_kernel),typeof(loglikelihood),typeof(prior)}(involution, auxiliary_kernel, loglikelihood, prior)
+    iMCMCModel(
+        involution,
+        auxiliary_kernel,
+        turing_model;
+        sampler=DynamicPPL.SampleFromPrior()
+    ) =
+    new{typeof(involution),typeof(auxiliary_kernel)}(involution, auxiliary_kernel, np_gen_logπ(sampler,turing_model))
 end
 
-# Involution Φ(x,v) = (newx,newv)
+# evaluate the loglikelihood of a sample
+logpdf(model::iMCMCModel, x) = model.loglikelihood(x)
+
+# get functions
+getinvolution(model::iMCMCModel) = model.involution
+getkernel(model::iMCMCModel) = model.auxiliary_kernel
+getloglikelihood(model::iMCMCModel) = model.loglikelihood
+
+"""
+    `AbstractInvolution` is the abstract type of all involutions.
+
+- `involution` run the involution and return a newx-newv tuple.
+- `logabsdetjac` returns the log absolute value of the Jacobian determinant of the involution with respect to `x` and `v`.
+"""
 abstract type AbstractInvolution{AD} <: Bijectors.ADBijector{AD, 0} end
 
-struct Involution{T, A, AD} <: AbstractInvolution{AD}
-    "New sample." # function that maps (x,v) to newx, i.e. π1∘Φ
-    newx::T
-    "New auxiliary." # function that maps (x,v) to newv, i.e. π2∘Φ
-    newv::A
-    "Shape of sample" # function that maps a flattened x to x
-    shapex
-    "Shape of auxiliary" # function that maps a flattened v to v
-    shapev
+"""
+    `Involution` constructs an involution where logabsdetjac is defined by the user.
+"""
+struct Involution{T, L, AD} <: AbstractInvolution{AD}
+    "Involution." # function that maps current state (x,v) to the new state
+    involution::T
+    "Logabsdetjac" # function that maps current state (x,v) to its log absolute value Jacobian determinant.
+    logabsdetjac::L
 
-    Involution(newx, newv; shapex=identity, shapev=identity) = new{typeof(newx), typeof(newv), ADBackend()}(newx,newv,shapex,shapev)
+    Involution(involution, logabsdetjac) = new{typeof(involution), typeof(logabsdetjac), ADBackend()}(involution, logabsdetjac)
 end
 
-(b::Involution)(s) = vcat(b.newx(s),b.newv(s))
-(ib::Bijectors.Inverse{<:Involution})(s) = vcat(b.newx(s),b.newv(s))
-runinvolution(i::Involution, s) = i.newx(s), i.newv(s)
-logabsdetjac(i::Involution, x, v) = Bijectors.logabsdetjac(model.involution, vcat(x, collect(Iterators.flatten(v))))
+involution(i::Involution, x, v) = i.involution(x, v)
+logabsdetjacinv(i::Involution, x, v) = i.logabsdetjac(x, v)
 
-struct ZInvolution{T, A, AD} <: AbstractInvolution{AD}
-    "New sample." # function that maps (x,v) to newx, i.e. π1∘Φ
-    newx::T
-    "New auxiliary." # function that maps (x,v) to newv, i.e. π2∘Φ
-    newv::A
-    "Shape of sample" # function that maps a flattened x to x
-    shapex
-    "Shape of auxiliary" # function that maps a flattened v to v
-    shapev
+"""
+    `ADInvolution` constructs an involution where logabsdetjac is defined using Bijectors.
+"""
+struct ADInvolution{T, S, AD} <: AbstractInvolution{AD}
+    "Involution." # function that maps current state (x,v) to the new state
+    involution::T
+    "State function." # function that maps s to (x,v)
+    state::S
 
-    ZInvolution(newx, newv; shapex=identity, shapev=identity) = new{typeof(newx), typeof(newv), ADBackend()}(newx,newv,shapex,shapev)
+    ADInvolution(involution, state) = new{typeof(involution), typeof(state), ADBackend()}(involution, state)
 end
 
-runinvolution(i::ZInvolution, s) = i.newx(s), i.newv(s)
-logabsdetjac(i::ZInvolution, x, v) = 0.0
+involution(i::ADInvolution, x, v) = i.involution(x, v)
 
-struct BInvolution{T, A, AD} <: AbstractInvolution{AD}
-    "New sample." # function that maps (x,v) to newx, i.e. π1∘Φ
-    newx::T
-    "New auxiliary." # function that maps (x,v) to newv, i.e. π2∘Φ
-    newv::A
-    "Shape of sample" # function that maps a flattened x to x
-    shapex
-    "Shape of auxiliary" # function that maps a flattened v to v
-    shapev
-
-    "Bijector."
-    bijector::ADBijector{AD, 0}
-    "Input function." # function that maps (x,v) to (bool, t). It tells us to compute the logabsdetjac of bijector/inv(bijector) at t
-    input
-
-    BInvolution(newx, newv, bijector, input; shapex=identity, shapev=identity) = new{typeof(newx), typeof(newv), ADBackend()}(newx, newv, shapex, shapev, bijector, input)
+function (b::ADInvolution)(s)
+    x, v = b.state(s)
+    newx, newv = involution(b, x, v)
+    return vcat(newx, newv)
+end
+function (ib::Bijectors.Inverse{<:ADInvolution})(s)
+    b = ib.orig
+    x, v = b.state(s)
+    newx, newv = involution(b, x, v)
+    return vcat(newx, newv)
 end
 
-runinvolution(i::BInvolution, s) = i.newx(s), i.newv(s)
-function logabsdetjac(i::BInvolution, x, v)
-    state = vcat(x,collect(Iterators.flatten(v)))
-    forward, t = i.input(state)
-    if forward
-        return Bijectors.logabsdetjac(i.bijector, t)
+logabsdetjacinv(i::ADInvolution, x, v) = Bijectors.logabsdetjac(i, convert(Vector{Float64}, vcat(x, v)))
+
+"""
+    `CompositeInvolution` constructs an involution where logabsdetjac is defined by the user.
+"""
+struct CompositeInvolution{I, L, AD} <: AbstractInvolution{AD}
+    "InvolutionMap." # map n to an involution that map current state (x,v) to the new state
+    involutionMap::I
+    "Logabsdetjac." # map n to the log absolute value Jacobian determinant of the corresponding involution
+    logabsdetjacMap::L
+
+    # The algorithm is run as follows.
+    # n = init
+    # while constraint(n, sample)
+    #     nextsample = step(sample, involutionMap(n))
+    #     n = next(n)
+    # end
+    "Initialisation."
+    init
+    "Constaint."
+    constraint
+    "Next."
+    next
+
+    CompositeInvolution(
+        involutionMap,
+        logabsdetjacMap;
+        init = (rng, x) -> 1,
+        constraint = (n, x) -> n ≤ length(x),
+        next = n -> n+1) =
+    new{typeof(involutionMap), typeof(logabsdetjacMap), ADBackend()}(involutionMap, logabsdetjacMap, init, constraint, next)
+end
+
+involution(i::CompositeInvolution, x, v, n::Int) = i.involutionMap(n)(x,v)
+
+logabsdetjacinv(i::CompositeInvolution, x, v, n::Int) = i.logabsdetjacMap(n)(x,v)
+
+"""
+    `Bijection` constructs an involution where logabsdetjac is defined by the user.
+"""
+struct Bijection{T, I, L, AD} <: AbstractInvolution{AD}
+    "Bijection." # function that maps current state (x,v) to the new state
+    bijection::T
+    "Inverse of bijection" # inverse of bijection
+    invbijection::I
+    "Logabsdetjac" # function that maps current state (x,v) to its log absolute value Jacobian determinant.
+    logabsdetjac::L
+
+    Bijection(bijection, invbijection, logabsdetjac) = new{typeof(bijection), typeof(invbijection), typeof(logabsdetjac), ADBackend()}(bijection, invbijection, logabsdetjac)
+end
+
+randdir(rng::Random.AbstractRNG, i::Bijection) = Random.rand(rng, Bernoulli(0.5))
+involution(i::Bijection, x, v, d::Bool) = d ? i.bijection(x, v) : i.invbijection(x, v)
+function logabsdetjacinv(i::Bijection, x, v, d::Bool)
+    if d
+        return i.logabsdetjac(x, v)
     else
-        return Bijectors.logabsdetjac(inv(i.bijector), t)
+        newx, newv = i.invbijection(x, v)
+        return -i.logabsdetjac(newx, newv)
     end
 end
 
-# Auxiliary kernel
+"""
+    `AbstractAuxKernel` is the abstract type of all auxiliary kernels.
+
+- `Random.rand` returns the `n`-th element of the random sample from the kernel conditioned on the vector `x::Vector{Float64}`.
+- `Random.randn` returns a random sample from the kernel conditioned on the vector `x::Vector{Float64}`.
+- `Distributions.loglikelihood` returns the log likelihood of the kernel conditioned on `x` and `v`.
+"""
 abstract type AbstractAuxKernel end
 
+"""
+    `AuxKernel` constructs an auxiliary kernel of the type Vector{Float64} -> Vector{Distributions.UnivariateDistribution}
+"""
 struct AuxKernel{T} <: AbstractAuxKernel
-    "Auxiliary Kernel." # only one auxiliary kernel function
+    "Auxiliary Kernel." # auxiliary kernel function
     auxkernel::T
 
     AuxKernel(auxkernel) = new{typeof(auxkernel)}(auxkernel)
 end
 
+Random.rand(rng, x, k::AuxKernel, n::Int) = Random.randn(rng, x, k)[n]
 
-function Random.rand(rng::Random.AbstractRNG, x, k::AuxKernel)
-    x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
-    dist = k.auxkernel(x)
-    if typeof(dist) <: Distributions.Sampleable
-        return Random.rand(rng,dist)
-    else
-        error("Auxiliary kernel conditioned on x is not sampleable.")
-    end
-end
-
-function Distributions.loglikelihood(k::AuxKernel, x, v)
-    x = typeof(x) <: AbstractVector && length(x) == 1 ? x[1] : x
-    dist = k.auxkernel(x)
-    if typeof(dist) <: Distributions.Sampleable
-        return Distributions.loglikelihood(dist, v)
-    else
-        error("Auxiliary kernel conditioned on x is not sampleable.")
-    end
-end
-
-struct CompositeAuxKernel{T} <: AbstractAuxKernel
-    "Composition of Auxiliary Kernels." # vector of auxiliary kernel functions
-    comp_auxkernel::T
-
-    CompositeAuxKernel(comp_auxkernel) = new{typeof(comp_auxkernel)}(comp_auxkernel)
-end
-
-
-function Random.rand(rng::Random.AbstractRNG, x, k::CompositeAuxKernel)
+function Random.randn(rng::Random.AbstractRNG, x, k::AuxKernel)
+    dists = k.auxkernel(x)
     v = []
-    for kernel in k.comp_auxkernel
-        x = Random.rand(rng, x, kernel)
-        v = vcat(v,[x])
+    for dist in dists
+        if typeof(dist) <: Distributions.UnivariateDistribution
+            append!(v, Random.rand(rng, dist))
+        else
+            error("Auxiliary kernel conditioned on x is not univariate.")
+        end
     end
     return v
 end
 
-Distributions.loglikelihood(k::CompositeAuxKernel, x, v) = sum(map(
-    (kernel, xsample, vsample) -> Distributions.loglikelihood(kernel, xsample, vsample),
-    k.comp_auxkernel,
-    vcat([x],v[1:end-1]),
-    v
-))
-
-# @model function ProductAuxKernel(x)
-#     x' = pre_sample(x)
-#     if cross_ref
-#         y ~ prod_auxkernel(x')
-#     else
-#         y = tzeros(Float64, length(x'))
-#         for i in 1:length(x')
-#             y[i] ~ prod_auxkernel[i](x'[i])
-#         end
-#     end
-#     (f,k) = copy_info
-#     y' = insert_list(y, k, f(x))
-#     return y'
-# end
-
-struct ProductAuxKernel{T} <: AbstractAuxKernel
-    "Product of Auxiliary Kernels."
-    prod_auxkernel::T
-    "Shape"
-    shape
-    # if cross_ref, prod_auxkernel is of type {samples} -> Vector{Distributions}
-    # if not cross_ref, prod_auxkernel is of type Vector{samples -> Distributions}
-    "Cross Reference"
-    cross_ref::Bool
-    "A tuple (f,k) which copy f(input) at index n"
-    copy_info
-    "Pre Sampling Function"
-    pre_sample
-end
-
-ProductAuxKernel(prod_auxkernel, shape; cross_ref=false, copy_info=(f=x->[],n=0),pre_sample=identity) = ProductAuxKernel{typeof(prod_auxkernel)}(prod_auxkernel,shape,cross_ref,copy_info,pre_sample)
-
-function Random.rand(rng::Random.AbstractRNG, x, k::ProductAuxKernel)
-    newx = k.pre_sample(x)
-    if k.cross_ref
-        vsample = map(
-            dist->Random.rand(rng,dist),
-            k.prod_auxkernel(newx)
-        )
-    else
-        vsample = map(
-            (kernel,xsample)->Random.rand(rng, xsample, kernel),
-            k.prod_auxkernel,
-            reshape_sample(newx,k.shape)
-        )
+function Distributions.loglikelihood(k::AuxKernel, x, v)
+    dists = k.auxkernel(x)
+    n = length(dists)
+    logp = 0
+    for i in 1:n
+        if typeof(dists[i]) <: Distributions.UnivariateDistribution
+            logp += Distributions.loglikelihood(dists[i], v[i])
+        else
+            error("Auxiliary kernel conditioned on x is not univariate.")
+        end
     end
-    vsample = k.copy_info.n==0 ? vsample :
-        insert_list(vsample, k.copy_info.n, k.copy_info.f(x))
-    flatvsample = collect(Iterators.flatten(vsample))
-    return flatvsample
-end
-
-function Distributions.loglikelihood(k::ProductAuxKernel, x, v)
-    v = k.copy_info.n==0 ? v :
-        remove_list(v, k.copy_info.n, length(k.copy_info.f(x)))
-    newx = k.pre_sample(x)
-    if k.cross_ref
-        return sum(map(
-            (dist,vsample) -> Distributions.loglikelihood(dist,vsample),
-            k.prod_auxkernel(newx),
-            reshape_sample(v,k.shape)
-        ))
-    else
-        return sum(map(
-            (kernel, xsample, vsample) -> Distributions.loglikelihood(kernel, xsample, vsample),
-            k.prod_auxkernel,
-            reshape_sample(newx,k.shape),
-            reshape_sample(v,k.shape)
-        ))
-    end
+    return logp
 end
 
 """
     `ModelAuxKernel` constructs an auxiliary kernel via the `@model` macro.
-
-The model is assumed to be parametric and has to return all "raw" sampled values.
 """
-struct ModelAuxKernel{T} <: AbstractAuxKernel
-    "Model Function."
-    model_function::T
-    "Sampler"
-    sampler
+struct ModelAuxKernel{T,S} <: AbstractAuxKernel
+    "Kernel Model."
+    kmodel::T
+    "Kernel Sampler"
+    ksampler::S
+
+    ModelAuxKernel(kmodel; ksampler = DynamicPPL.SampleFromPrior()) = new{typeof(kmodel), typeof(ksampler)}(kmodel, ksampler)
 end
 
-ModelAuxKernel(model_function;sampler = DynamicPPL.SampleFromPrior()) = ModelAuxKernel{typeof(model_function)}(model_function, sampler)
+Random.rand(rng::Random.AbstractRNG, x, k::ModelAuxKernel, n::Int) = Random.randn(rng, x, k)[n]
 
-function Random.rand(rng::Random.AbstractRNG, x, k::ModelAuxKernel)
-    modelkernel = k.model_function(x)
-    modelsampler = k.sampler
-    lj = VarInfo(modelkernel, modelsampler)
-    vsample = lj[modelsampler]
-    # vsample = modelkernel(lj, modelsampler)
-    return vsample
+function Random.randn(rng::Random.AbstractRNG, x, k::ModelAuxKernel)
+    model = k.kmodel(x)
+    vi = VarInfo(model, k.ksampler)
+    v = vi[k.ksampler]
+    return v
 end
 
 function Distributions.loglikelihood(k::ModelAuxKernel, x, v)
-    modelkernel = k.model_function(x)
-    vi = VarInfo(modelkernel)
-    logp = trans_dim_gen_logπ(vi, k.sampler, modelkernel)(v)
+    logp = gen_logπ(k.ksampler, k.kmodel(x))(v)
     return logp
 end
 
-# obtain auxiliary_kernel conditioned on x
-auxiliary_kernel(model::iMCMCModel) = model.auxiliary_kernel
+"""
+    `PointwiseAuxKernel` constructs an auxiliary kernel for each dimension
 
-# evaluate the loglikelihood of a sample
-Distributions.loglikelihood(model::iMCMCModel, x) = model.loglikelihood(
-    typeof(x) <: AbstractVector ? collect(Iterators.flatten(x)) : x
-)
+- `kernel` should be of type (Int, Vector{Float64}) -> Distributions.Sampleable
+"""
+struct PointwiseAuxKernel{T} <: AbstractAuxKernel
+    "Kernel."
+    kernel::T
 
-# obtain `model`'s prior
-prior(model::iMCMCModel) = model.prior
+    PointwiseAuxKernel(kernel) = new{typeof(kernel)}(kernel)
+end
+
+Random.rand(rng::Random.AbstractRNG, x, k::PointwiseAuxKernel, n::Int) = Random.rand(rng, k.kernel(n, x))
+
+Random.randn(rng::Random.AbstractRNG, x, k::PointwiseAuxKernel) = map(i->Random.rand(rng, x, k, i), 1:length(x))
+
+Distributions.loglikelihood(k::PointwiseAuxKernel, x, v) =
+sum(i->Distributions.loglikelihood(k.kernel(i, x), v[i]), 1:length(x), init=0.0)
+
+"""
+    `CompositeAuxKernel` constructs a composition of kernels
+
+- `kernels` should be of type Vector{AbtractAuxKernel}
+"""
+struct CompositeAuxKernel{T} <: AbstractAuxKernel
+    "Kernels."
+    kernels::T
+
+    CompositeAuxKernel(kernels) = new{typeof(kernels)}(kernels)
+end
+
+function Random.rand(rng::Random.AbstractRNG, x, k::CompositeAuxKernel, n::Int)
+    v = []
+    conditioned = x
+    for kernel in k.kernels
+        newvelem = Random.rand(rng, conditioned, kernel, n)
+        append!(v,[newvelem])
+        conditioned = vcat(conditioned[1:n-1], [newvelem], conditioned[n+1:end])
+    end
+    return v
+end
+
+function Random.randn(rng::Random.AbstractRNG, x, k::CompositeAuxKernel)
+    v = []
+    conditioned = x
+    for kernel in k.kernels
+        newv = Random.randn(rng, conditioned, kernel)
+        append!(v,[newv])
+        conditioned = newv
+    end
+    return v
+end
+
+function Distributions.loglikelihood(k::CompositeAuxKernel, x, v)
+    logp = 0
+    conditioned = x
+    for i in 1:length(k.kernels)
+        logp += Distributions.loglikelihood(k.kernels[i], conditioned, v[i])
+        conditioned = v[i]
+    end
+    return logp
+end
